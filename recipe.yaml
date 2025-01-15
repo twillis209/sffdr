@@ -38,9 +38,9 @@ requirements:
   - r-tibble
   - r-tidyr
   - r-rcpp
-  -  r-testthat >=3.0.0  # suggested
-  -  r-knitr  # suggested
-  -  r-rmarkdown  # suggested
+  - r-testthat >=3.0.0  # suggested
+  - r-knitr  # suggested
+  - r-rmarkdown  # suggested
 
 tests:
 - script:
