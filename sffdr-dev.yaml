@@ -1,0 +1,13 @@
+name: sffdr-dev
+channels:
+- conda-forge
+- bioconda
+dependencies:
+- r-base
+- r-devtools
+- r-usethis
+- r-attachment
+- r-locfit
+- r-gam
+- r-tidyr
+- bioconductor-qvalue
