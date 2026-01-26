@@ -2,12 +2,16 @@ name: sffdr-dev
 channels:
 - conda-forge
 - bioconda
+- twillis209
 dependencies:
 - r-base
 - r-devtools
 - r-usethis
 - r-attachment
 - r-locfit
-- r-gam
+- twillis209::r-gam
 - r-tidyr
+- r-dplyr
+- r-tibble
+- r-readr
 - bioconductor-qvalue
