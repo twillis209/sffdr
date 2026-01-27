@@ -19,4 +19,5 @@ dependencies:
 - r-patchwork
 - r-rmarkdown
 - pandoc
-- bioconductor-qvalue
+- bioconductor-qvalue=2.38
+# - twillis209::r-qvalue
