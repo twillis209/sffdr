@@ -33,7 +33,7 @@ fpi0est(
 
 \item{pi0.method.control}{A user specified set of parameters for convergence for either "gam" or "glm". Default is NULL. See \code{\link{gam.control}} or \code{\link{glm.control}}.}
 
-\item{\ldots}{Additional arguments passed to \code{\link{gam}} or \code{\link{glm}}.}
+\item{\ldots}{Additional arguments passed to \code{\link[mgcv]{bam}} or \code{\link{glm}}.}
 }
 \value{
 A list of object type "fpi0" containing:

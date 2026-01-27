@@ -262,11 +262,13 @@ updated_fastglm <- function(formula,
   rval
 }
 
+#' @exportS3Method 
 family.fastglm2 <- function (object, ...) 
 {
   object$family
 }
 
+#' @exportS3Method 
 predict.fastglm2 <- function (object, newdata, type = c("link", "response"),
                               na.action = na.pass, ...) 
 {
