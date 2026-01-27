@@ -10,7 +10,7 @@ dependencies:
 - r-roxygen2
 - r-attachment
 - r-locfit
-- twillis209::r-gam
+- r-gam
 - r-mgcv
 - r-tidyr
 - r-dplyr
