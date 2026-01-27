@@ -7,11 +7,16 @@ dependencies:
 - r-base
 - r-devtools
 - r-usethis
+- r-roxygen2
 - r-attachment
 - r-locfit
 - twillis209::r-gam
+- r-mgcv
 - r-tidyr
 - r-dplyr
 - r-tibble
 - r-readr
+- r-patchwork
+- r-rmarkdown
+- pandoc
 - bioconductor-qvalue

@@ -127,3 +127,81 @@ sffdr_out <- sffdr(p,
 ```
 
 Note that the LD-independent SNPs are used for model fitting in sfFDR, and the functional p-values, q-values, and local FDRs are estimated for all SNPs. See `?ffinemap` to perform functional fine mapping in a region of interest (assuming a single causal locus) with the functional local FDR.
+
+## Advanced: New knot selection approaches
+
+The package now supports two additional approaches for knot selection that can improve performance and adaptability.
+
+### Approach 1: mgcv with penalized splines (recommended for multi-trait)
+
+Instead of manually specifying knot locations, you can use `mgcv`'s penalized regression splines with the `s()` function. This approach automatically places knots evenly across the data range and uses a smoothness penalty to shrink coefficients where there is no signal.
+
+```{r}
+# Rank-transform informative variables (no knots specified)
+mpi0_mgcv <- pi0_model(z = z, indep_snps = indep_snps)
+
+# Build formula with smooth terms (k=50 is max basis dimension)
+n_traits <- ncol(z)
+z_names <- colnames(mpi0_mgcv$zt)
+smooth_terms <- paste0("s(", z_names, ", k=50, bs='cr')", collapse = " + ")
+mgcv_formula <- formula(paste0("~", smooth_terms))
+
+# Estimate fpi0 using mgcv::bam (via updated fpi0est)
+fpi0_mgcv <- fpi0est(
+  p = p,
+  z = mpi0_mgcv$zt,
+  indep_snps = indep_snps,
+  pi0_model = mgcv_formula,
+  method = "gam",
+  discrete = TRUE  # Important for speed with large datasets
+)
+
+# Apply sffdr
+sffdr_mgcv <- sffdr(p, fpi0 = fpi0_mgcv$fpi0, indep_snps = indep_snps)
+plot(sffdr_mgcv, rng = c(0, 1e-6))
+```
+
+**Key benefits of this approach:**
+
+- No manual knot selection required
+- `k=50` sets maximum complexity, but penalty shrinks it automatically
+- More robust to linkage disequilibrium
+- Better performance with `discrete=TRUE` on large datasets
+
+The parameter `k=50` is deliberately high - the penalized regression will automatically reduce the effective degrees of freedom based on the signal in the data.
+
+### Approach 2: FDR-based adaptive knots (single trait)
+
+For single-trait analyses, you can use `construct_model()` to automatically place knots where FDR analysis detects signal:
+
+```{r, eval = FALSE}
+# Analyze signal in each informative trait
+library(qvalue)
+
+# For BFP (single trait example)
+bfp_formula <- construct_model(sumstats$bfp)
+print(bfp_formula)  # Shows adaptive knot placement
+
+# construct_model() adapts to signal strength:
+# - Strong signal (≥100 tests with FDR ≤ 0.5): quartile knots in signal region
+# - Moderate signal (50-99 tests): single knot
+# - Weak signal (<50 tests): intercept-only model
+```
+
+**Note:** The `construct_model()` function is designed for single-trait scenarios. For multi-trait analysis with linkage disequilibrium, the mgcv approach (Approach 1) is recommended as it is more robust.
+
+### Comparison of approaches
+
+```{r, echo=FALSE}
+comparison <- data.frame(
+  Approach = c("Manual quantiles", "mgcv penalized", "FDR-based"),
+  `Knot placement` = c("Fixed quantiles", "Even spacing", "FDR-detected regions"),
+  `Shrinkage` = c("No", "Yes", "No"),
+  `Multi-trait` = c("Yes", "Yes (recommended)", "Single only"),
+  `LD robust` = c("Medium", "High", "Low"),
+  check.names = FALSE
+)
+knitr::kable(comparison)
+```
+
+**Summary:** For most applications with multiple informative traits and LD, use the mgcv approach with `s()` smoothers and `k=50`. This eliminates manual knot tuning while providing robust, data-adaptive fitting.
