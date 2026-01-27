@@ -1,12 +1,15 @@
-context: {}
+context:
+  local_build: "{{ env.get('LOCAL_BUILD', 'false') == 'true' }}"
 
 package:
   name: r-sffdr
   version: 1.0.0
 
 source:
-- url: https://cran.r-project.org/src/contrib/sffdr_1.0.0.tar.gz
-  sha256: 1ff2627728b14a37fba8e7350701c66ee99964705f2a623ca1be567866e9567c
+  git: ./.
+  rev: new_knot_approach
+    # url: https://cran.r-project.org/src/contrib/sffdr_1.0.0.tar.gz
+    # sha256: 1ff2627728b14a37fba8e7350701c66ee99964705f2a623ca1be567866e9567c
 
 build:
   script: R CMD INSTALL --build .
@@ -28,6 +31,7 @@ requirements:
   - bioconductor-qvalue
   - r-tibble
   - r-tidyr
+  - r-fastglm
   run:
   - r-base
   - r-locfit
