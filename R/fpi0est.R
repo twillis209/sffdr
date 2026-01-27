@@ -17,7 +17,7 @@
 #' @param method Either the "gam" (generalized additive model) or "glm" (generalized linear models) approach. Default is "gam".
 #' @param maxit The maximum number of iterations for "glm" approach. Default is 1000.
 #' @param pi0.method.control A user specified set of parameters for convergence for either "gam" or "glm". Default is NULL. See \code{\link{gam.control}} or \code{\link{glm.control}}.
-#' @param \ldots Additional arguments passed to \code{\link{gam}} or \code{\link{glm}}.
+#' @param \ldots Additional arguments passed to \code{\link[mgcv]{bam}} or \code{\link{glm}}.
 #'
 #' @return
 #' A list of object type "fpi0" containing:
@@ -51,7 +51,7 @@
 #' @seealso \code{\link{sffdr}}, \code{\link{plot.sffdr}}
 #' @keywords fpi0est
 #' @aliases fpi0est
-#' @importFrom stats density binomial dnorm ecdf fitted.values formula glm glm.control optimize pnorm predict qnorm quantile smooth.spline
+#' @importFrom stats density binomial dnorm ecdf fitted.values formula glm glm.control optimize pnorm predict qnorm quantile smooth.spline model.frame model.matrix model.weights model.offset delete.response napredict .checkMFClasses .getXlevels
 #' @export
 fpi0est <- function(p,
                     z,
@@ -69,7 +69,7 @@ fpi0est <- function(p,
   }
   if (is.null(pi0.method.control)) {
     if (method == "gam") {
-      control <- gam::gam.control(epsilon = 1e-9, bf.epsilon = 1e-9, maxit= 200, bf.maxit = 200)
+      control <- mgcv::gam.control(epsilon = 1e-9, maxit = 1000)
     } else {
       control <- glm.control(maxit = maxit)
     }
@@ -104,11 +104,10 @@ fpi0est <- function(p,
                                   ...))
 
     } else if (method == "gam") {
-      fit <- gam::gam(fm,
-                      family = constrained.binomial(1 - lambda),
-                      data = z.fit,
-                      control = control,
-                      ...)
+      fit <- mgcv::bam(fm,
+                       family = constrained.binomial(1 - lambda),
+                       data = z.fit,
+                       ...)
 
     }
     return(fit)
@@ -198,6 +197,129 @@ constrained.binomial = function(maximum) {
   new.line <- substitute(mustart <- mustart * maximum, list(maximum = maximum))
   # convert call to expressiion so it be initialized by eval
   fam$initialize <- as.expression(c(fam$initialize, new.line))
+  
+  aic <- function (y, n, mu, wt, dev) 
+  {
+    m <- if (any(n > 1)) 
+      n
+    else wt
+    -2 * sum(ifelse(m > 0, (wt/m), 0) * dbinom(round(m * y), 
+                                               round(m), mu, log = TRUE))
+  }
+  fam$ls <- function(y, w, n, scale) {
+    c(-aic(y, n, y, w, 0)/2, 0, 0)
+  }
 
   fam
+}
+
+updated_fastglm <- function(formula,
+                            data,
+                            method = 3,
+                            family = gaussian(),
+                            weights = NULL,
+                            offset = NULL,
+                            tol = 1e-08,
+                            maxit = 100L,
+                            ...){
+  call <- match.call()
+  M <- match.call(expand.dots = FALSE)
+  m <- match(c("formula", "data", "subset", "weights", "na.action", 
+               "offset"), names(M), 0L)
+  M <- M[c(1L, m)]
+  M$drop.unused.levels <- TRUE
+  M[[1L]] <- quote(stats::model.frame)
+  M <- eval(M, parent.frame())
+  y <- M[[1]]
+  tf <- attr(M,"terms")
+  X <- model.matrix(tf, M)
+  weights <- as.vector(model.weights(M))
+  offset <- model.offset(M)
+  if (is.null(offset)) 
+    offset <- rep(0, length(y))
+  rval <- fastglm::fastglm(y = y,
+                           x = X,
+                           family = family,
+                           method = method,
+                           weights = weights,
+                           offset = offset,
+                           tol = tol,
+                           maxit = maxit,
+                           ...)
+  if (ncol(M)>1) {
+    for (i in 2:ncol(M)) {
+      if (is.factor(M[, i])) 
+        eval(parse(text = paste("rval$levels$'", names(M)[i], 
+                                "'", "<-levels(M[,i])", sep = "")))
+    }
+  }
+ 
+  rval$terms = tf
+  rval$call <- call
+  rval$xlevels <- .getXlevels(tf, M)
+  rval$formula <- formula
+  class(rval) <- "fastglm2"
+  rval
+}
+
+family.fastglm2 <- function (object, ...) 
+{
+  object$family
+}
+
+predict.fastglm2 <- function (object, newdata, type = c("link", "response"),
+                              na.action = na.pass, ...) 
+{
+  type <- match.arg(type)
+  na.act <- object$na.action
+  object$na.action <- NULL
+  if (missing(newdata)) {
+    pred <- switch(type,
+                   link = object$linear.predictors, 
+                   response = fitted(object)
+    )
+    if (!is.null(na.act)) pred <- napredict(na.act, pred)
+  } else {
+    pred <- get_predict(object, newdata,
+                        type = "response", 
+                        na.action = na.action)
+    switch(type, response = {
+      pred <- family(object)$linkinv(pred)
+    }, link = )
+  }
+  pred
+}
+
+get_predict <- function (object, newdata, na.action = na.pass, ...) 
+{
+  tt <- terms(object)
+  if (missing(newdata) || is.null(newdata)) {
+    if(is.null(object$fitted.values)) 
+      return(object$fitted.values)
+  }
+  else {
+    Terms <- delete.response(tt)
+    m <- model.frame(Terms, newdata, na.action = na.action, xlev = object$xlevels)
+    if (!is.null(cl <- attr(Terms, "dataClasses"))) 
+      .checkMFClasses(cl, m)
+    X <- model.matrix(Terms, m, contrasts.arg = object$contrasts)
+    offset <- rep(0, nrow(X))
+    if (!is.null(off.num <- attr(tt, "offset"))) 
+      for (i in off.num) offset <- offset + eval(attr(tt, 
+                                                      "variables")[[i + 1]], newdata)
+    if (!is.null(object$call$offset)) 
+      offset <- offset + eval(object$call$offset, newdata)
+  }
+  p <- object$rank            
+  ord <- colnames(X)
+  if (p < ncol(X) && !(missing(newdata) || is.null(newdata))) 
+    warning("prediction from a rank-deficient fit may be misleading")
+  beta <- object$coefficients 
+  beta[is.na(beta)] <- 0
+  predictor <- drop(X[, ord, drop = FALSE] %*% beta[ord])              
+  if (!is.null(offset)) 
+    predictor <- predictor + offset
+  if (missing(newdata) && !is.null(na.act <- object$na.action)) 
+    predictor <- napredict(na.act, predictor)
+  predictor
 }

@@ -86,3 +86,58 @@ pi0_model <- function(z,
   list(fmod = fmod,
        zt = as_tibble(z_out))
 }
+
+#' Construct model formula using FDR-based knot selection
+#'
+#' \code{construct_model} creates a model formula with knots placed adaptively
+#' based on FDR estimates. Knots are concentrated in regions where signal exists.
+#'
+#' @param x A vector of p-values for a single trait
+#'
+#' @return A formula object for use in modeling
+#'
+#' @details
+#' This function uses qvalue to identify regions with FDR <= 0.5 and places
+#' knots adaptively:
+#' \itemize{
+#'   \item If minimal signal (< 50 tests with FDR <= 0.5): returns intercept-only model
+#'   \item If moderate signal (50-99 tests): uses single knot at maximum
+#'   \item If strong signal (>= 100 tests): uses quartile knots within signal region
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' data(bmi)
+#' # Create model for BFP
+#' bfp_model <- construct_model(sumstats$bfp)
+#' }
+#'
+#' @author Andrew J. Bass
+#' @seealso \code{\link{pi0_model}}
+#' @keywords construct_model
+#' @aliases construct_model
+#' @export
+construct_model <- function(x) {
+  ecdf <- ecdf(x)
+  fdr <- qvalue::qvalue(x)$qvalue
+  
+  if (min(fdr) > 0.5 | sum(fdr <= .5) < 50) {
+    fdr_knots <- 0.5
+    warning("Very little signal in study")
+    my_form <- paste0("~1")
+    return(my_form)
+  } else {
+    tot <- sum(fdr <= 0.5)
+    if (tot < 100) {
+      fdr_knots <- quantile(x[fdr <= 0.5], 1)
+    } else {
+      fdr_knots <- quantile(x[fdr <= 0.5], seq(0.25, 1, 0.25))
+    } 
+    fdr_knots <- unique(ecdf(fdr_knots))
+  }
+  
+  my_form <- paste0(
+    "~ns(z1, knots =c(", paste0(fdr_knots, collapse = ","), "))"
+  )
+  return(my_form)
+}
