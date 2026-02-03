@@ -51,7 +51,7 @@
 #' @seealso \code{\link{sffdr}}, \code{\link{plot.sffdr}}
 #' @keywords fpi0est
 #' @aliases fpi0est
-#' @importFrom stats density binomial dnorm ecdf fitted.values formula glm glm.control optimize pnorm predict qnorm quantile smooth.spline model.frame model.matrix model.weights model.offset delete.response napredict .checkMFClasses .getXlevels
+#' @importFrom stats density binomial dnorm ecdf family fitted.values formula glm glm.control optimize pnorm predict qnorm quantile smooth.spline model.frame model.matrix model.weights model.offset delete.response napredict .checkMFClasses .getXlevels
 #' @export
 fpi0est <- function(p,
                     z,
