@@ -2,7 +2,7 @@ Type: Package
 Package: sffdr
 Title: Surrogate Functional False Discovery Rates for Genome-Wide
     Association Studies
-Version: 1.1.5
+Version: 1.1.7
 Authors@R: c(
     person("Andrew", "Bass", , "ab3105@cam.ac.uk", role = c("aut", "cre")),
     person("Chris", "Wallace", , "chris.wallace@cam.ac.uk", role = "aut")
