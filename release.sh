@@ -111,43 +111,43 @@ if [[ $push_choice =~ ^[Yy]$ ]]; then
     
     echo "Creating GitHub release..."
     gh release create "v$version" $latest --notes-from-tag
-    
-    read -p "Build and upload to Anaconda? [y/N]: " build_choice
-    if [[ $build_choice =~ ^[Yy]$ ]]; then
-        echo "Select target platform:"
-        echo "1) linux-64"
-        echo "2) osx-arm64"
-        read -p "Enter choice [1-2]: " platform_choice
-        
-        case $platform_choice in
-            1)
-                target_platform="linux-64"
-                ;;
-            2)
-                target_platform="osx-arm64"
-                ;;
-            *)
-                echo "Invalid choice"
-                exit 1
-                ;;
-        esac
-        
-        echo "Building with rattler-build for $target_platform..."
-        rattler-build build --recipe recipe.yml --output-dir ../r-sffdr --target-platform $target_platform
-        
-        read -p "Upload to Anaconda? [y/N]: " upload_choice
-        if [[ $upload_choice =~ ^[Yy]$ ]]; then
-            echo "Uploading to Anaconda..."
-            rattler-build upload anaconda $(ls ../r-sffdr/$target_platform/r-sffdr-$version-*.conda) --owner twillis209
-            echo "Package uploaded successfully!"
-        fi
-    fi
 else
     echo "Skipping push and release creation."
     echo "You can manually push later with:"
     echo "  git push origin $(git branch --show-current)"
     echo "  git push -f origin v$version"
     echo "  gh release create v$version $latest --notes-from-tag"
+fi
+
+read -p "Build conda package with rattler-build? [y/N]: " build_choice
+if [[ $build_choice =~ ^[Yy]$ ]]; then
+    echo "Select target platform:"
+    echo "1) linux-64"
+    echo "2) osx-arm64"
+    read -p "Enter choice [1-2]: " platform_choice
+    
+    case $platform_choice in
+        1)
+            target_platform="linux-64"
+            ;;
+        2)
+            target_platform="osx-arm64"
+            ;;
+        *)
+            echo "Invalid choice"
+            exit 1
+            ;;
+    esac
+    
+    echo "Building with rattler-build for $target_platform..."
+    rattler-build build --recipe recipe.yml --output-dir ../r-sffdr --target-platform $target_platform
+    
+    read -p "Upload to Anaconda? [y/N]: " upload_choice
+    if [[ $upload_choice =~ ^[Yy]$ ]]; then
+        echo "Uploading to Anaconda..."
+        rattler-build upload anaconda $(ls ../r-sffdr/$target_platform/r-sffdr-$version-*.conda) --owner twillis209
+        echo "Package uploaded successfully!"
+    fi
 fi
 
 echo "Release process complete!"
