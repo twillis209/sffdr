@@ -51,6 +51,7 @@ Load the `sffdr` package and example data set:
 
 ```{r}
 library(sffdr)
+library(splines)
 set.seed(123)
 data(bmi)
 head(sumstats)

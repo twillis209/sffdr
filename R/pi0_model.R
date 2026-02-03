@@ -36,6 +36,7 @@
 #' @seealso \code{\link{sffdr}}
 #' @keywords pi0_model
 #' @aliases pi0_model
+#' @importFrom splines ns
 #' @export
 pi0_model <- function(z,
                       indep_snps = NULL,
