@@ -93,7 +93,6 @@ fpi0est <- function(p,
   }
   # Model matrix
   fm <- formula(paste("phi", paste(pi0_model, collapse = " ")))
-  environment(fm) <- asNamespace("sffdr")
   pi0hat_func <- function(lambda) {
     z.fit$phi <- as.numeric(p.fit >= lambda)
     fit <- NULL

@@ -78,7 +78,7 @@ Alternatively, the model can be directly inputted into `fpi0est`:
 
 ```{r, eval = FALSE}
 # Create design matrix (can include other variables (e.g., MAF) or specify more complicated models)
-fmod <- "~ns(bfp, knots = c(0.01, 0.025, 0.05, 0.1))"
+fmod <- "~splines::ns(bfp, knots = c(0.01, 0.025, 0.05, 0.1))"
 fpi0_mod <- fpi0est(p = p,
                     z = mpi0$zt,
                     pi0_model = fmod)

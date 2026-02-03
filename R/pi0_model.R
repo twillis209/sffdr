@@ -69,7 +69,7 @@ pi0_model <- function(z,
   cn <- colnames(z)
   for (i in 1:ncol(z)) {
     if (is.null(knots)) {
-      temp <- paste0("ns(",  cn[i],  ", df=", basis.df, ")")
+      temp <- paste0("splines::ns(",  cn[i],  ", df=", basis.df, ")")
     } else {
       if (!is.null(indep_snps)) {
         z0 <- z[indep_snps,, drop = F]
@@ -77,13 +77,12 @@ pi0_model <- function(z,
         z0 <- z
       }
       k = quantile(z0[, i], knots)
-      temp <- paste0("ns(",  cn[i],  ", knots=c(", paste0(k, collapse = ","), "))")
+      temp <- paste0("splines::ns(",  cn[i],  ", knots=c(", paste0(k, collapse = ","), "))")
     }
     terms <- c(temp, terms)
   }
 
   fmod <- formula(paste("~", paste(terms, collapse = "+")))
-  environment(fmod) <- asNamespace("sffdr")
   z_out[!z_na,] <- z
   list(fmod = fmod,
        zt = as_tibble(z_out))
@@ -139,7 +138,7 @@ construct_model <- function(x) {
   }
   
   my_form <- paste0(
-    "~ns(z1, knots =c(", paste0(fdr_knots, collapse = ","), "))"
+    "~splines::ns(z1, knots =c(", paste0(fdr_knots, collapse = ","), "))"
   )
   return(my_form)
 }
