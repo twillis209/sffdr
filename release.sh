@@ -12,8 +12,12 @@ fi
 
 # Check for uncommitted changes
 if ! git diff-index --quiet HEAD --; then
-    echo "Error: You have uncommitted changes. Please commit them first."
-    exit 1
+    echo "Warning: You have uncommitted changes."
+    read -p "Continue anyway? [y/N]: " continue_choice
+    if [[ ! $continue_choice =~ ^[Yy]$ ]]; then
+        echo "Aborting."
+        exit 1
+    fi
 fi
 
 # Activate conda environment
@@ -21,31 +25,38 @@ echo "Activating sffdr-dev conda environment..."
 source $(conda info --base)/etc/profile.d/conda.sh
 conda activate sffdr-dev
 
-# Prompt for version bump type
-echo "Select version bump type:"
+# Prompt for version bump
+echo "Do you want to bump the version?"
 echo "1) patch (x.y.Z)"
 echo "2) minor (x.Y.0)"
 echo "3) major (X.0.0)"
-read -p "Enter choice [1-3]: " version_choice
+echo "4) Skip version bump"
+read -p "Enter choice [1-4]: " version_choice
 
 case $version_choice in
     1)
         version_type="patch"
+        echo "Bumping $version_type version..."
+        R -e "usethis::use_version('$version_type')"
         ;;
     2)
         version_type="minor"
+        echo "Bumping $version_type version..."
+        R -e "usethis::use_version('$version_type')"
         ;;
     3)
         version_type="major"
+        echo "Bumping $version_type version..."
+        R -e "usethis::use_version('$version_type')"
+        ;;
+    4)
+        echo "Skipping version bump..."
         ;;
     *)
         echo "Invalid choice"
         exit 1
         ;;
 esac
-
-echo "Bumping $version_type version..."
-R -e "usethis::use_version('$version_type')"
 
 echo "Updating documentation..."
 R -e "devtools::document()"

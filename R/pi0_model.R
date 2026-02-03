@@ -83,6 +83,7 @@ pi0_model <- function(z,
   }
 
   fmod <- formula(paste("~", paste(terms, collapse = "+")))
+  environment(fmod) <- asNamespace("sffdr")
   z_out[!z_na,] <- z
   list(fmod = fmod,
        zt = as_tibble(z_out))

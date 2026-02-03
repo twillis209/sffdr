@@ -51,7 +51,7 @@
 #' @seealso \code{\link{sffdr}}, \code{\link{plot.sffdr}}
 #' @keywords fpi0est
 #' @aliases fpi0est
-#' @importFrom stats density binomial dnorm ecdf family fitted.values formula glm glm.control optimize pnorm predict qnorm quantile smooth.spline model.frame model.matrix model.weights model.offset delete.response napredict .checkMFClasses .getXlevels
+#' @importFrom stats density binomial dbinom dnorm ecdf family fitted fitted.values formula gaussian glm glm.control model.frame model.matrix model.weights model.offset delete.response na.pass napredict optimize pnorm predict qnorm quantile smooth.spline terms .checkMFClasses .getXlevels
 #' @export
 fpi0est <- function(p,
                     z,
@@ -93,7 +93,7 @@ fpi0est <- function(p,
   }
   # Model matrix
   fm <- formula(paste("phi", paste(pi0_model, collapse = " ")))
-  environment(fm) <- environment()
+  environment(fm) <- asNamespace("sffdr")
   pi0hat_func <- function(lambda) {
     z.fit$phi <- as.numeric(p.fit >= lambda)
     fit <- NULL
