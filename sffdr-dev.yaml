@@ -21,3 +21,4 @@ dependencies:
 - pandoc
 - bioconductor-qvalue=2.38
 # - twillis209::r-qvalue
+- r-fastglm
