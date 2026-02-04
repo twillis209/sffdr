@@ -45,5 +45,5 @@ VignetteBuilder:
     knitr
 # RoxygenNote: 7.3.1
 Encoding: UTF-8
-LazyData: true
+LazyData: false
 RoxygenNote: 7.3.3
