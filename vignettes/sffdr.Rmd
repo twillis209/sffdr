@@ -172,23 +172,27 @@ The parameter `k=50` is deliberately high - the penalized regression will automa
 
 ### Approach 2: FDR-based adaptive knots (single trait)
 
-For single-trait analyses, you can use `construct_model()` to automatically place knots where FDR analysis detects signal:
+For single-trait or multi-trait analyses, you can use `construct_fdr_formula()` to automatically place knots where FDR analysis detects signal:
 
 ```{r, eval = FALSE}
 # Analyze signal in each informative trait
 library(qvalue)
 
 # For BFP (single trait example)
-bfp_formula <- construct_model(sumstats$bfp)
+bfp_formula <- construct_fdr_formula(sumstats$bfp)
 print(bfp_formula)  # Shows adaptive knot placement
 
-# construct_model() adapts to signal strength:
+# For multiple traits
+z <- as.matrix(sumstats[, -1])
+multi_formula <- construct_fdr_formula(z)
+
+# construct_fdr_formula() adapts to signal strength per variable:
 # - Strong signal (≥100 tests with FDR ≤ 0.5): quartile knots in signal region
 # - Moderate signal (50-99 tests): single knot
-# - Weak signal (<50 tests): intercept-only model
+# - Weak signal (<50 tests): excludes variable from model
 ```
 
-**Note:** The `construct_model()` function is designed for single-trait scenarios. For multi-trait analysis with linkage disequilibrium, the mgcv approach (Approach 1) is recommended as it is more robust.
+**Note:** For multi-trait analysis with linkage disequilibrium, the mgcv approach (Approach 1) is still recommended as it is more robust.
 
 ### Comparison of approaches
 

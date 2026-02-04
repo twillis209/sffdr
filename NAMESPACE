@@ -3,7 +3,7 @@
 S3method(family,fastglm2)
 S3method(plot,sffdr)
 S3method(predict,fastglm2)
-export(construct_model)
+export(construct_fdr_formula)
 export(ffinemap)
 export(fpi0est)
 export(fpvalues)
