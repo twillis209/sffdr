@@ -63,7 +63,6 @@ plot.sffdr <- function (x, rng = c(0, 5e-8), ...) {
     ggplot(aes(x = z, y = pi0)) +
     #geom_point() +
      geom_line() +
-    theme_bw() +
     scale_x_log10() +
     xlab("surrogate variable") +
     ylab("prior probability of null") +
@@ -74,7 +73,7 @@ plot.sffdr <- function (x, rng = c(0, 5e-8), ...) {
                          fpvalue = fpvalues[which(fpvalues >= rng[1] & fpvalues <= rng[2])]),
               aes(x =  pvalue, y = fpvalue)) +
     ylab("functional p-value") + scale_x_log10() + scale_y_log10() +
-    xlab("p-value") + geom_point() + theme_bw()
+    xlab("p-value") + geom_point()
 
   # Functional p versus discoveries
   df1 <- data.frame(threshold = fp.ord[fp.ord >= rng[1] & fp.ord <= rng[2]],
@@ -97,7 +96,7 @@ plot.sffdr <- function (x, rng = c(0, 5e-8), ...) {
     xlab("threshold") +
     ylab("significant tests") + geom_line( ) +
     geom_line(data = df2,
-              aes(x=threshold, y= sig, linetype = "Raw P") ) +  theme_bw() +
+              aes(x=threshold, y= sig, linetype = "Raw P") ) +
     scale_linetype_manual("", values = c("solid", "dashed")) +
     theme(strip.text.x = element_blank(),
           strip.background = element_rect(  fill=NA),
@@ -112,8 +111,7 @@ plot.sffdr <- function (x, rng = c(0, 5e-8), ...) {
                 aes(x = fpvalue, y =  fqvalue )) +
     xlab("functional p-value") + scale_x_log10() + scale_y_log10() +
     ylab("functional q-value") + #geom_point() +
-    theme_bw() +
-    geom_line() + theme_bw() + scale_x_log10()
+    geom_line() + scale_x_log10()
 
   (p1+p2) / (p3+p4) + plot_annotation(tag_levels = 'a', tag_prefix = "(", tag_suffix = ")")
 }
