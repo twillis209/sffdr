@@ -56,6 +56,7 @@ Load the `sffdr` package and example data set:
 library(sffdr)
 library(ggplot2)
 theme_set(theme_minimal(base_size = 5))
+library(dplyr)
 set.seed(123)
 data(bmi)
 head(sumstats)

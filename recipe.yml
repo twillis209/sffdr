@@ -3,13 +3,13 @@ context:
 
 package:
   name: r-sffdr
-  version: 1.2.0
+  version: 1.3.0
 
 source:
   git: ./.
   rev: new_knot_approach
     # url: https://cran.r-project.org/src/contrib/sffdr_1.0.0.tar.gz
-    # sha256: d854a541d281b5e41bc12ff8c50e391d4bec932c7625b87fbefd3f291767b7e1
+    # sha256: e535e3b5a5c6a827f07cb29f67edfe0a501685fe23bab6793a861e7699f33b3e
 
 build:
   script: R CMD INSTALL --build .
