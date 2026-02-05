@@ -61,6 +61,7 @@ fpi0est <- function(p,
                     method = "gam",
                     maxit = 1000,
                     pi0.method.control = NULL,
+                    verbose = FALSE,
                     ...) {
   k <- phi.hat <- omega <- delta.sq <- chosen <- . <- NULL
 
@@ -94,6 +95,9 @@ fpi0est <- function(p,
   # Model matrix
   fm <- formula(paste("phi", paste(pi0_model, collapse = " ")))
   pi0hat_func <- function(lambda) {
+    if (verbose) {
+      message(sprintf("Fitting model at lambda = %.3f", lambda))
+    }
     z.fit$phi <- as.numeric(p.fit >= lambda)
     fit <- NULL
     if (method == "glm") {
@@ -104,10 +108,23 @@ fpi0est <- function(p,
                                   ...))
 
     } else if (method == "gam") {
-      fit <- mgcv::bam(fm,
-                       family = constrained.binomial(1 - lambda),
-                       data = z.fit,
-                       ...)
+      fit <- tryCatch({
+        mgcv::bam(fm,
+                  family = constrained.binomial(1 - lambda),
+                  data = z.fit,
+                  ...)
+      }, warning = function(w) {
+        if (verbose && grepl("did not converge", w$message)) {
+          message(sprintf("  ⚠ Convergence warning at lambda = %.3f", lambda))
+        }
+        # Re-signal the warning
+        warning(w)
+        # Return the fit anyway (bam still returns a result)
+        suppressWarnings(mgcv::bam(fm,
+                                    family = constrained.binomial(1 - lambda),
+                                    data = z.fit,
+                                    ...))
+      })
 
     }
     return(fit)

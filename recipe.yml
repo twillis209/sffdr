@@ -9,7 +9,7 @@ source:
   git: ./.
   rev: new_knot_approach
     # url: https://cran.r-project.org/src/contrib/sffdr_1.0.0.tar.gz
-    # sha256: e535e3b5a5c6a827f07cb29f67edfe0a501685fe23bab6793a861e7699f33b3e
+    # sha256: c047f6f36537d0385ca16d61b7e17b3853ca24b9f56d94e1c9d7190eeac674b3
 
 build:
   script: R CMD INSTALL --build .
