@@ -12,7 +12,10 @@ vignette: >
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  dev = "svg",
+  fig.retina = 2,
+  dpi = 300
 )
 ```
 
@@ -51,6 +54,8 @@ Load the `sffdr` package and example data set:
 
 ```{r}
 library(sffdr)
+library(ggplot2)
+theme_set(theme_minimal(base_size = 5))
 set.seed(123)
 data(bmi)
 head(sumstats)
@@ -132,7 +137,7 @@ Note that the LD-independent SNPs are used for model fitting in sfFDR, and the f
 
 The package now supports two additional approaches for knot selection that can improve performance and adaptability.
 
-### Approach 1: mgcv with penalized splines (recommended for multi-trait)
+### Approach 1: mgcv with penalised splines
 
 Instead of manually specifying knot locations, you can use `mgcv`'s penalized regression splines with the `s()` function. This approach automatically places knots evenly across the data range and uses a smoothness penalty to shrink coefficients where there is no signal.
 
@@ -161,51 +166,30 @@ sffdr_mgcv <- sffdr(p, fpi0 = fpi0_mgcv$fpi0, indep_snps = indep_snps)
 plot(sffdr_mgcv, rng = c(0, 1e-6))
 ```
 
-**Key benefits of this approach:**
+### Approach 2: FDR-based adaptive knots
 
-- No manual knot selection required
-- `k=50` sets maximum complexity, but penalty shrinks it automatically
-- More robust to linkage disequilibrium
-- Better performance with `discrete=TRUE` on large datasets
+```{r }
+z_matrix <- as.matrix(select(sumstats, bfp, cholesterol, triglycerides))
 
-The parameter `k=50` is deliberately high - the penalized regression will automatically reduce the effective degrees of freedom based on the signal in the data.
+mpi0 <- pi0_model(
+    z = z_matrix,
+    indep_snps = sumstats$is_independent
+  )
 
-### Approach 2: FDR-based adaptive knots (single trait)
+multi_formula <- construct_fdr_formula(z_matrix)
 
-For single-trait or multi-trait analyses, you can use `construct_fdr_formula()` to automatically place knots where FDR analysis detects signal:
-
-```{r, eval = FALSE}
-# Analyze signal in each informative trait
-library(qvalue)
-
-# For BFP (single trait example)
-bfp_formula <- construct_fdr_formula(sumstats$bfp)
-print(bfp_formula)  # Shows adaptive knot placement
-
-# For multiple traits
-z <- as.matrix(sumstats[, -1])
-multi_formula <- construct_fdr_formula(z)
-
-# construct_fdr_formula() adapts to signal strength per variable:
-# - Strong signal (≥100 tests with FDR ≤ 0.5): quartile knots in signal region
-# - Moderate signal (50-99 tests): single knot
-# - Weak signal (<50 tests): excludes variable from model
-```
-
-**Note:** For multi-trait analysis with linkage disequilibrium, the mgcv approach (Approach 1) is still recommended as it is more robust.
-
-### Comparison of approaches
-
-```{r, echo=FALSE}
-comparison <- data.frame(
-  Approach = c("Manual quantiles", "mgcv penalized", "FDR-based"),
-  `Knot placement` = c("Fixed quantiles", "Even spacing", "FDR-detected regions"),
-  `Shrinkage` = c("No", "Yes", "No"),
-  `Multi-trait` = c("Yes", "Yes (recommended)", "Single only"),
-  `LD robust` = c("Medium", "High", "Low"),
-  check.names = FALSE
+fpi0 <- fpi0est(
+  p = sumstats$bmi,
+  z = mpi0$zt,
+  indep_snps = indep_snps,
+  pi0_model = multi_formula,
+  method = "gam",
 )
-knitr::kable(comparison)
-```
 
-**Summary:** For most applications with multiple informative traits and LD, use the mgcv approach with `s()` smoothers and `k=50`. This eliminates manual knot tuning while providing robust, data-adaptive fitting.
+sffdr_fdr <- sffdr(p,
+  fpi0 = fpi0$fpi0,
+  indep_snps = indep_snps
+)
+
+plot(sffdr_fdr)
+```

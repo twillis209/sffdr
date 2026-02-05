@@ -132,114 +132,75 @@ pi0_model <- function(z,
 #' @aliases construct_fdr_formula
 #' @export
 construct_fdr_formula <- function(x, 
-                            indep_snps = NULL,
-                            fdr_threshold = 0.5,
-                            min_signal = 50,
-                            moderate_signal = 100) {
+                                  indep_snps = NULL,
+                                  fdr_threshold = 0.5,
+                                  min_signal = 50,
+                                  moderate_signal = 100) {
   
-  # Handle single vector case (original behavior)
-  if (is.vector(x) || ncol(as.matrix(x)) == 1) {
-    x_vec <- as.vector(x)
-    if (!is.null(indep_snps)) {
-      x_vec <- x_vec[indep_snps]
-    }
-    
-    ecdf_func <- ecdf(x_vec)
-    fdr <- qvalue::qvalue(x_vec)$qvalue
-    
-    if (min(fdr) > fdr_threshold | sum(fdr <= fdr_threshold) < min_signal) {
-      warning("Very little signal in study")
-      return("~1")
-    } else {
-      tot <- sum(fdr <= fdr_threshold)
-      if (tot < moderate_signal) {
-        fdr_knots <- quantile(x_vec[fdr <= fdr_threshold], 1)
-      } else {
-        fdr_knots <- quantile(x_vec[fdr <= fdr_threshold], seq(0.25, 1, 0.25))
-      } 
-      fdr_knots <- unique(ecdf_func(fdr_knots))
-    }
-    
-    return(paste0(
-      "~splines::ns(z1, knots=c(", paste0(fdr_knots, collapse = ","), "))"
-    ))
-  }
+  # Convert to matrix for uniform handling
+  x <- as.matrix(x)
   
-  # Handle matrix case (multiple variables)
-  if (!is.matrix(x)) {
-    x <- as.matrix(x)
-  }
-  
+  # Set column names if missing
   if (is.null(colnames(x))) {
     colnames(x) <- paste0("z", 1:ncol(x))
   }
   
-  cn <- colnames(x)
-  terms <- NULL
+  terms <- character(0)
   
   # Process each variable
   for (i in 1:ncol(x)) {
     pvals <- x[, i]
-    var_name <- cn[i]
+    var_name <- colnames(x)[i]
     
-    # Use independent SNPs if specified
+    # Subset to independent SNPs and remove NAs
     if (!is.null(indep_snps)) {
-      pvals_indep <- pvals[indep_snps]
-    } else {
-      pvals_indep <- pvals
+      pvals <- pvals[indep_snps]
     }
+    pvals <- pvals[!is.na(pvals)]
     
-    # Remove NAs
-    pvals_indep <- pvals_indep[!is.na(pvals_indep)]
-    
-    if (length(pvals_indep) == 0) {
+    if (length(pvals) == 0) {
       warning(sprintf("Variable '%s' has no valid p-values. Skipping.", var_name))
       next
     }
     
     # Compute FDR
     fdr <- tryCatch({
-      qvalue::qvalue(pvals_indep)$qvalue
+      qvalue::qvalue(pvals)$qvalue
     }, error = function(e) {
-      warning(sprintf("Could not compute qvalue for variable '%s': %s. Skipping.", 
-                      var_name, e$message))
+      warning(sprintf("Could not compute qvalue for '%s': %s. Skipping.", var_name, e$message))
       return(NULL)
     })
     
-    if (is.null(fdr)) {
-      next
-    }
+    if (is.null(fdr)) next
     
     # Check signal strength
     n_signal <- sum(fdr <= fdr_threshold)
     
     if (n_signal < min_signal) {
-      warning(sprintf("Variable '%s' has minimal signal (%d tests with FDR <= %.2f). Excluding from model.", 
+      warning(sprintf("Variable '%s' has weak signal (%d tests with FDR <= %.2f). Excluding.", 
                       var_name, n_signal, fdr_threshold))
       next
     }
     
-    # Compute ECDF for knot placement
-    ecdf_func <- ecdf(pvals_indep)
+    # Determine knots based on signal strength
+    signal_pvals <- pvals[fdr <= fdr_threshold]
     
-    # Determine knot placement based on signal strength
     if (n_signal < moderate_signal) {
-      # Moderate signal: single knot at maximum signal p-value
-      signal_pvals <- pvals_indep[fdr <= fdr_threshold]
-      fdr_knots <- max(signal_pvals)
+      # Moderate signal: single knot at maximum
+      knot_vals <- max(signal_pvals)
     } else {
-      # Strong signal: quartile knots within signal region
-      signal_pvals <- pvals_indep[fdr <= fdr_threshold]
-      fdr_knots <- quantile(signal_pvals, seq(0.25, 1, 0.25))
+      # Strong signal: quartile knots
+      knot_vals <- quantile(signal_pvals, seq(0.25, 1, 0.25))
     }
     
-    # Convert to ECDF values (quantiles)
-    fdr_knots <- unique(ecdf_func(fdr_knots))
+    # Convert to ECDF values (quantiles of full data)
+    knots <- unique(ecdf(pvals)(knot_vals))
     
-    # Create spline term
-    temp <- paste0("splines::ns(", var_name, ", knots=c(", 
-                   paste0(fdr_knots, collapse = ","), ")")
-    terms <- c(terms, temp)
+    # Create spline term with closing parenthesis
+    term <- sprintf("splines::ns(%s, knots=c(%s))", 
+                    var_name, 
+                    paste(knots, collapse = ","))
+    terms <- c(terms, term)
   }
   
   # Build formula
@@ -248,6 +209,7 @@ construct_fdr_formula <- function(x,
     return("~1")
   }
   
-  return(paste0("~", paste(terms, collapse = " + ")))
+  paste0("~", paste(terms, collapse = " + "))
 }
+
 
