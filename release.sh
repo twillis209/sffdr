@@ -206,7 +206,7 @@ if [[ $build_choice =~ ^[Yy]$ ]]; then
     esac
     
     echo "Building with rattler-build for $target_platform..."
-    rattler-build build --recipe recipe.yml --output-dir ../r-sffdr --target-platform $target_platform
+    rattler-build build --recipe recipe.yml --output-dir ../r-sffdr --target-platform $target_platform -c conda-forge -c bioconda -c twillis209
     
     read -p "Upload to Anaconda? [y/N]: " upload_choice
     if [[ $upload_choice =~ ^[Yy]$ ]]; then

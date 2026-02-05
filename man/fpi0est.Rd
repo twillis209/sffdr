@@ -13,6 +13,7 @@ fpi0est(
   method = "gam",
   maxit = 1000,
   pi0.method.control = NULL,
+  verbose = FALSE,
   ...
 )
 }
