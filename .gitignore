@@ -9,3 +9,5 @@ src/*.dll
 claude
 vignettes/sffdr.html
 /sffdr-troubleshooting.yaml
+*.tar.gz
+*.Rcheck/
