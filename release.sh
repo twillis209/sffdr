@@ -1,3 +1,4 @@
+
 #!/bin/bash
 set -e
 
@@ -369,6 +370,7 @@ if [[ "$BUILD_CONDA" == "yes" ]] || [[ "$NON_INTERACTIVE" != "yes" && -z "$SKIP_
                 echo "Error: Cannot upload - package not found"
             fi
         fi
+    fi
     fi
 fi
 
