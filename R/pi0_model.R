@@ -135,8 +135,8 @@ construct_fdr_formula <- function(x,
                                   indep_snps = NULL,
                                   fdr_threshold = 0.5,
                                   min_signal = 50,
-                                  moderate_signal = 100) {
-  
+                                  moderate_signal = 100,
+                                  strong_signal_quantiles = seq(0.25, 1, 0.25)) {
   # Convert to matrix for uniform handling
   x <- as.matrix(x)
   
