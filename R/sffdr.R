@@ -17,6 +17,7 @@
 #' @param surrogate A surrogate variable that compresses more than one informative variables.
 #' Default is NULL. If \code{fpi0} is specified and \code{surrogate} is NULL then \code{fpi0} is used as the surrogate variable.
 #' @param indep_snps A boolean vector (same size as p) specifying the set of independent tests. Default is NULL and all tests are treated independently.
+#' @param weights Optional numeric vector of weights for density estimation and π₀ modeling. Used to downweight SNPs in high-LD regions. Must be same length as \code{p.value}. Default is NULL (equal weights).
 #' @param monotone.window Enforce monotonicity at specified step size. Default is NULL.
 #' @param epsilon A numerical value the truncation for the p-values during density estimation. Default is 1e-15. You may want to consider decreasing this value if there are a substantial number of small p-values.
 #' @param nn A numerical value specifying the nearest neighbor parameter in \code{\link{kernelEstimator}}. Default is NULL.
@@ -72,6 +73,7 @@ sffdr <- function(p.value,
                   fpi0,
                   surrogate = NULL,
                   indep_snps = NULL,
+                  weights = NULL,
                   monotone.window = NULL,
                   epsilon = 1e-15,
                   nn = NULL,
@@ -87,6 +89,10 @@ sffdr <- function(p.value,
       warning("Less than 100 independent SNPs. Estimation will be noisy.")
     }
     indep.check <- TRUE
+  }
+  
+  if (!is.null(weights)) {
+    validate_weights(weights, length(p.value))
   }
 
   if (is.null(surrogate)) {
@@ -104,7 +110,10 @@ sffdr <- function(p.value,
 
   kd <- kernelEstimator(cbind(z[indep_snps], p.value[indep_snps]),
                         nn = nn,
-                        eval.points = cbind(z, p.value), epsilon = epsilon, ...)
+                        eval.points = cbind(z, p.value),
+                        epsilon = epsilon,
+                        weights = if (!is.null(weights)) weights[indep_snps] else NULL,
+                        ...)
 
   if (!is.null(monotone.window)) {
     if (length(p.value) > 500000) {
@@ -124,7 +133,9 @@ sffdr <- function(p.value,
     kd_surrogate <- kernelEstimator(z[indep_snps],
                                     nn = nn,
                                     eval.points = z,
-                                    epsilon = epsilon, ...)
+                                    epsilon = epsilon,
+                                    weights = if (!is.null(weights)) weights[indep_snps] else NULL,
+                                    ...)
     sfx <- kd_surrogate$fx
   } else {
     sfx <-  1

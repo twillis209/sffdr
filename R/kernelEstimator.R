@@ -11,6 +11,7 @@
 #' computing the fit; useful for computational efficiency and for ensuring
 #' the density estimation does not run out of memory. NULL means no the
 #' fit is performed on all points
+#' @param weights Optional numeric vector of weights for kernel density estimation. Downweights observations in high-density/high-LD regions. Default is NULL (equal weights).
 #' @param epsilon How close values are allowed to come to 0
 #' @param epsilon.max How close values are allowed to come to 1
 #' @param maxk maxk argument passed to locfit
@@ -27,12 +28,18 @@ kernelEstimator <- function(x,
                             transformation = "probit",
                             eval.points = x,
                             subsample = 1e+07,
+                            weights = NULL,
                             epsilon = 1e-15,
                             epsilon.max = 0.999,
                             maxk = 10000,
                             trim = 1e-15,
                             nn = NULL, ...) {
   . <- NULL
+  
+  if (!is.null(weights)) {
+    n_obs <- if (is.matrix(x)) nrow(x) else length(x)
+    validate_weights(weights, n_obs)
+  }
   transformation <- match.arg(as.character(transformation),
                               c("ident", "cloglog", "probit"))
   trans <- switch(transformation, ident = identity, cloglog = function(x) -log(-log(x)),
@@ -52,18 +59,29 @@ kernelEstimator <- function(x,
   s <- trans(x)
   if (!is.null(subsample)) {
     if (is.matrix(s) && subsample < nrow(s)) {
-      s <- s[sample(nrow(s), subsample), ]
+      idx <- sample(nrow(s), subsample)
+      s <- s[idx, ]
+      if (!is.null(weights)) {
+        weights <- weights[idx]
+      }
     }
     else if (!is.matrix(s) && subsample < length(s)) {
-      s <- s[sample(length(s), subsample)]
+      idx <- sample(length(s), subsample)
+      s <- s[idx]
+      if (!is.null(weights)) {
+        weights <- weights[idx]
+      }
     }
   }
 
   if (is.matrix(s)) {
     fitfunc <- function(...) locfit(~lp(s[, 1], s[, 2], ...),
+                                    weights = weights,
                                     maxk = maxk)
   } else {
-    fitfunc <- function(...) locfit(~lp(s, ...), maxk = maxk)
+    fitfunc <- function(...) locfit(~lp(s, ...),
+                                    weights = weights,
+                                    maxk = maxk)
   }
 
   lfit <- fitfunc(..., nn = nn)

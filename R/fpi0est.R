@@ -13,10 +13,12 @@
 #' @param z A vector of informative variables
 #' @param pi0_model Model formula corresponding to \code{z} for the functional proportion of truly null tests.
 #' @param indep_snps A boolean vector (same size as p) specifying the set of independent tests. Default is NULL and all tests are treated independently.
+#' @param weights Optional numeric vector of weights for GLM/GAM fitting. Typically derived from LD scores to downweight SNPs in high-LD regions. Must be same length as \code{p}. Default is NULL (equal weights).
 #' @param lambda A vector of values between [0,1] to estimate the functional proportion of truly null tests.
 #' @param method Either the "gam" (generalized additive model) or "glm" (generalized linear models) approach. Default is "gam".
 #' @param maxit The maximum number of iterations for "glm" approach. Default is 1000.
 #' @param pi0.method.control A user specified set of parameters for convergence for either "gam" or "glm". Default is NULL. See \code{\link{gam.control}} or \code{\link{glm.control}}.
+#' @param verbose Logical; print fitting messages? Default is FALSE.
 #' @param \ldots Additional arguments passed to \code{\link[mgcv]{bam}} or \code{\link{glm}}.
 #'
 #' @return
@@ -57,6 +59,7 @@ fpi0est <- function(p,
                     z,
                     pi0_model,
                     indep_snps = NULL,
+                    weights = NULL,
                     lambda = seq(0.05, 0.9, 0.05),
                     method = "gam",
                     maxit = 1000,
@@ -67,6 +70,10 @@ fpi0est <- function(p,
 
   if (min(p) < 0 || max(p) > 1) {
     stop("P-values not in valid range")
+  }
+  
+  if (!is.null(weights)) {
+    validate_weights(weights, length(p))
   }
   if (is.null(pi0.method.control)) {
     if (method == "gam") {
@@ -85,12 +92,24 @@ fpi0est <- function(p,
   p <- p[rm_na]
   z <- z[rm_na,]
   indep_snps <- indep_snps[rm_na]
+  
+  if (!is.null(weights)) {
+    weights <- weights[rm_na]
+  }
+  
   if (!is.null(indep_snps)) {
     p.fit <- p[indep_snps]
     z.fit <- z[indep_snps,, drop = F]
+    
+    if (!is.null(weights)) {
+      weights.fit <- weights[indep_snps]
+    } else {
+      weights.fit <- NULL
+    }
   } else {
     p.fit = p
     z.fit = z
+    weights.fit <- weights
   }
   # Model matrix
   fm <- formula(paste("phi", paste(pi0_model, collapse = " ")))
@@ -104,6 +123,7 @@ fpi0est <- function(p,
       fit <- suppressWarnings(glm(fm, data = z.fit,
                                   family = constrained.binomial(1 - lambda),
                                   control = control,
+                                  weights = weights.fit,
                                   maxit = maxit,
                                   ...))
 
@@ -112,6 +132,7 @@ fpi0est <- function(p,
         mgcv::bam(fm,
                   family = constrained.binomial(1 - lambda),
                   data = z.fit,
+                  weights = weights.fit,
                   ...)
       }, warning = function(w) {
         if (verbose && grepl("did not converge", w$message)) {
@@ -123,6 +144,7 @@ fpi0est <- function(p,
         suppressWarnings(mgcv::bam(fm,
                                     family = constrained.binomial(1 - lambda),
                                     data = z.fit,
+                                    weights = weights.fit,
                                     ...))
       })
 
