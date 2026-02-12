@@ -16,6 +16,7 @@
 #' @param weights Optional numeric vector of weights for GLM/GAM fitting. Typically derived from LD scores to downweight SNPs in high-LD regions. Must be same length as \code{p}. Default is NULL (equal weights).
 #' @param lambda A vector of values between [0,1] to estimate the functional proportion of truly null tests.
 #' @param method Either the "gam" (generalized additive model) or "glm" (generalized linear models) approach. Default is "gam".
+#' @param smoothing.method Smoothing parameter selection method for GAMs. Options: "REML" (default, recommended for correlated data), "GCV.Cp", "GACV.Cp", "ML", "P-REML", "P-ML". Only used when \code{method = "gam"}. See \code{\link[mgcv]{bam}} for details.
 #' @param maxit The maximum number of iterations for "glm" approach. Default is 1000.
 #' @param pi0.method.control A user specified set of parameters for convergence for either "gam" or "glm". Default is NULL. See \code{\link{gam.control}} or \code{\link{glm.control}}.
 #' @param verbose Logical; print fitting messages? Default is FALSE.
@@ -62,6 +63,7 @@ fpi0est <- function(p,
                     weights = NULL,
                     lambda = seq(0.05, 0.9, 0.05),
                     method = "gam",
+                    smoothing.method = "REML",
                     maxit = 1000,
                     pi0.method.control = NULL,
                     verbose = FALSE,
@@ -133,6 +135,7 @@ fpi0est <- function(p,
                   family = constrained.binomial(1 - lambda),
                   data = z.fit,
                   weights = weights.fit,
+                  method = smoothing.method,
                   ...)
       }, warning = function(w) {
         if (verbose && grepl("did not converge", w$message)) {
@@ -145,6 +148,7 @@ fpi0est <- function(p,
                                     family = constrained.binomial(1 - lambda),
                                     data = z.fit,
                                     weights = weights.fit,
+                                    method = smoothing.method,
                                     ...))
       })
 
