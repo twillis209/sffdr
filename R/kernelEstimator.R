@@ -301,13 +301,14 @@ plot_kde_with_data <- function(kde_result, train_data, title = NULL, n_grid = 50
     s2_range <- range(train_data$s2)
     s1_grid <- seq(s1_range[1], s1_range[2], length.out = n_grid)
     s2_grid <- seq(s2_range[1], s2_range[2], length.out = n_grid)
-    grid <- expand.grid(s1 = s1_grid, s2 = s2_grid)
+    grid_df <- expand.grid(s1 = s1_grid, s2 = s2_grid)
     
-    # Evaluate density on grid
-    grid$density <- predict(lfit, newdata = grid)
+    # Evaluate density on grid (predict expects matrix for 2D)
+    grid_matrix <- as.matrix(grid_df)
+    grid_df$density <- predict(lfit, newdata = grid_matrix)
     
     # Create contour plot
-    p <- ggplot2::ggplot(grid, ggplot2::aes(x = s1, y = s2, z = density)) +
+    p <- ggplot2::ggplot(grid_df, ggplot2::aes(x = s1, y = s2, z = density)) +
       ggplot2::geom_contour_filled(alpha = 0.7) +
       ggplot2::scale_fill_viridis_d(option = "viridis") +
       ggplot2::labs(
