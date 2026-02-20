@@ -115,3 +115,206 @@ kernelEstimator <- function(x,
   attr(ret, "lfit") = lfit
   return(ret)
 }
+
+
+#' Extract KDE Training Data
+#'
+#' Returns the transformed data points that kernelEstimator would use for fitting,
+#' after all preprocessing (clamping, transformation, downsampling, jitter).
+#'
+#' @param x Numeric vector of p-values (1D) or 2-column matrix with 
+#'   (surrogate, p-values) for 2D case.
+#' @param indep_snps Logical vector indicating independent SNPs (optional).
+#' @param epsilon Lower bound for clamping. Default: 1e-15.
+#' @param epsilon.max Upper bound for clamping. Default: 1 - 1e-4.
+#' @param target_null Max null SNPs to keep (2D only). Default: 100000.
+#' @param tail_threshold Z-score threshold for signal region (2D only). Default: -2.
+#' @param transformation One of "probit", "cloglog", or "ident". Default: "probit".
+#'
+#' @return Data frame with transformed coordinates, weights, and metadata.
+#'   For 2D: columns s1 (surrogate), s2 (p-value), weight, region
+#'   For 1D: columns s (p-value), weight
+#'
+#' @export
+get_kde_training_data <- function(
+  x,
+  indep_snps = NULL,
+  epsilon = 1e-15,
+  epsilon.max = 1 - 1e-4,
+  target_null = 100000,
+  tail_threshold = -2,
+  transformation = "probit"
+) {
+  # Check dimensionality
+  is_2d <- is.matrix(x) && ncol(x) >= 2
+  
+  # Apply independence filter
+  if (!is.null(indep_snps)) {
+    x <- if (is_2d) x[indep_snps, , drop = FALSE] else x[indep_snps]
+  }
+  
+  # Set up transformation
+  trans <- switch(transformation,
+                  probit = qnorm,
+                  cloglog = function(v) -log(-log(v)),
+                  ident = identity)
+  
+  # Clamp and transform
+  clamp_transform <- function(v) {
+    trans(pmin(pmax(v, epsilon), epsilon.max))
+  }
+  
+  train_s <- if (is_2d) {
+    cbind(clamp_transform(x[, 1]), clamp_transform(x[, 2]))
+  } else {
+    clamp_transform(x)
+  }
+  
+  # Add jitter
+  jitter_mag <- 1e-6
+  if (is_2d) {
+    train_s[, 2] <- train_s[, 2] + runif(nrow(train_s), -jitter_mag, jitter_mag)
+  } else {
+    train_s <- train_s + runif(length(train_s), -jitter_mag, jitter_mag)
+  }
+  
+  # Adaptive downsampling (2D only)
+  if (is_2d) {
+    z <- train_s[, 1]
+    idx_signal <- which(z < tail_threshold)
+    idx_null <- which(z >= tail_threshold)
+    
+    n_signal <- length(idx_signal)
+    n_null_full <- length(idx_null)
+    
+    if (n_null_full > target_null) {
+      # Downsample nulls
+      idx_null_keep <- sample(idx_null, target_null)
+      idx_final <- c(idx_signal, idx_null_keep)
+      weights <- c(rep(1.0, n_signal), rep(n_null_full / target_null, target_null))
+      region <- c(rep("Signal", n_signal), rep("Null", target_null))
+    } else {
+      # Keep all
+      idx_final <- seq_len(nrow(train_s))
+      weights <- rep(1.0, length(idx_final))
+      region <- ifelse(seq_along(idx_final) <= n_signal, "Signal", "Null")
+    }
+    
+    # Build result
+    result <- data.frame(
+      s1 = train_s[idx_final, 1],
+      s2 = train_s[idx_final, 2],
+      weight = weights,
+      region = region
+    )
+    
+  } else {
+    # 1D case
+    result <- data.frame(
+      s = train_s,
+      weight = rep(1.0, length(train_s))
+    )
+  }
+  
+  # Add attributes for plotting
+  attr(result, "transformation") <- transformation
+  attr(result, "epsilon") <- epsilon
+  attr(result, "epsilon.max") <- epsilon.max
+  attr(result, "tail_threshold") <- if (is_2d) tail_threshold else NULL
+  attr(result, "n_effective") <- sum(result$weight)
+  attr(result, "is_2d") <- is_2d
+  
+  return(result)
+}
+
+
+#' Plot KDE Training Data
+#'
+#' Visualize the transformed data landscape that kernelEstimator fits to.
+#'
+#' @param data Data frame from get_kde_training_data()
+#' @param title Optional plot title
+#'
+#' @return ggplot2 object
+#'
+#' @import ggplot2
+#' @export
+plot_kde_training_data <- function(data, title = "KDE Training Data") {
+  
+  is_2d <- attr(data, "is_2d")
+  trans <- attr(data, "transformation")
+  epsilon <- attr(data, "epsilon")
+  epsilon.max <- attr(data, "epsilon.max")
+  tail_thresh <- attr(data, "tail_threshold")
+  n_eff <- attr(data, "n_effective")
+  
+  if (is_2d) {
+    # 2D scatterplot
+    p <- ggplot2::ggplot(data, ggplot2::aes(x = s1, y = s2, color = region, size = weight)) +
+      ggplot2::geom_point(alpha = 0.6) +
+      ggplot2::scale_color_manual(
+        values = c("Signal" = "#E41A1C", "Null" = "#377EB8"),
+        name = "Region"
+      ) +
+      ggplot2::scale_size_continuous(range = c(0.5, 3), name = "Weight") +
+      ggplot2::labs(
+        x = sprintf("%s(surrogate)", if (trans == "probit") "Φ⁻¹" else trans),
+        y = sprintf("%s(p-value)", if (trans == "probit") "Φ⁻¹" else trans),
+        title = title,
+        subtitle = sprintf("n = %d, n_eff = %.0f", nrow(data), n_eff)
+      ) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(
+        legend.position = "right",
+        plot.title = ggplot2::element_text(face = "bold", size = 14),
+        plot.subtitle = ggplot2::element_text(size = 10, color = "gray30")
+      )
+    
+    # Add reference lines if probit
+    if (trans == "probit") {
+      p <- p +
+        ggplot2::geom_hline(yintercept = qnorm(epsilon.max), 
+                   linetype = "dashed", color = "gray40", alpha = 0.7) +
+        ggplot2::geom_hline(yintercept = qnorm(epsilon), 
+                   linetype = "dashed", color = "gray40", alpha = 0.7)
+      
+      if (!is.null(tail_thresh)) {
+        p <- p +
+          ggplot2::geom_vline(xintercept = tail_thresh, 
+                     linetype = "dashed", color = "orange", linewidth = 1) +
+          ggplot2::annotate("text", x = tail_thresh, y = Inf, 
+                   label = "signal threshold", 
+                   hjust = -0.1, vjust = 1.5, color = "orange", size = 3.5)
+      }
+    }
+    
+  } else {
+    # 1D density plot
+    p <- ggplot2::ggplot(data, ggplot2::aes(x = s, weight = weight)) +
+      ggplot2::geom_histogram(ggplot2::aes(y = ggplot2::after_stat(density)), 
+                     bins = 50, fill = "#377EB8", alpha = 0.7, color = "white") +
+      ggplot2::geom_density(color = "#E41A1C", linewidth = 1) +
+      ggplot2::labs(
+        x = sprintf("%s(p-value)", if (trans == "probit") "Φ⁻¹" else trans),
+        y = "Density",
+        title = title,
+        subtitle = sprintf("n = %d, n_eff = %.0f", nrow(data), n_eff)
+      ) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(
+        plot.title = ggplot2::element_text(face = "bold", size = 14),
+        plot.subtitle = ggplot2::element_text(size = 10, color = "gray30")
+      )
+    
+    # Add reference lines if probit
+    if (trans == "probit") {
+      p <- p +
+        ggplot2::geom_vline(xintercept = qnorm(epsilon.max), 
+                   linetype = "dashed", color = "gray40") +
+        ggplot2::geom_vline(xintercept = qnorm(epsilon), 
+                   linetype = "dashed", color = "gray40")
+    }
+  }
+  
+  return(p)
+}
