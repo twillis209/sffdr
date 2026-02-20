@@ -303,9 +303,13 @@ plot_kde_with_data <- function(kde_result, train_data, title = NULL, n_grid = 50
     s2_grid <- seq(s2_range[1], s2_range[2], length.out = n_grid)
     grid_df <- expand.grid(s1 = s1_grid, s2 = s2_grid)
     
-    # Evaluate density on grid (predict expects matrix for 2D)
-    grid_matrix <- as.matrix(grid_df)
-    grid_df$density <- predict(lfit, newdata = grid_matrix)
+    # Evaluate density on grid
+    # locfit needs matrix input matching training data structure
+    grid_matrix <- cbind(grid_df$s1, grid_df$s2)
+    
+    # Use preplot for proper evaluation
+    pp <- preplot(lfit, newdata = grid_matrix, where = "data")
+    grid_df$density <- pp$fit
     
     # Create contour plot
     p <- ggplot2::ggplot(grid_df, ggplot2::aes(x = s1, y = s2, z = density)) +
@@ -341,8 +345,10 @@ plot_kde_with_data <- function(kde_result, train_data, title = NULL, n_grid = 50
     # 1D case: evaluate density on grid
     s_range <- range(train_data$s)
     s_grid <- seq(s_range[1], s_range[2], length.out = n_grid * 5)  # More points for smooth curve
-    density_vals <- predict(lfit, newdata = s_grid)
-    grid <- data.frame(s = s_grid, density = density_vals)
+    
+    # Use preplot for proper evaluation
+    pp <- preplot(lfit, newdata = s_grid, where = "data")
+    grid <- data.frame(s = s_grid, density = pp$fit)
     
     # Create plot
     p <- ggplot2::ggplot() +
