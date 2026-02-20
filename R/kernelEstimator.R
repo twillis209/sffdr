@@ -236,3 +236,112 @@ plot_kde_training_data <- function(data, title = "KDE Training Data") {
   
   return(p)
 }
+
+#' Plot KDE with Training Data Overlay
+#'
+#' Visualizes the fitted KDE density surface together with the training data points.
+#' For 2D, shows contours with points overlaid. For 1D, shows density curve with points.
+#'
+#' @param kde_result Result from kernelEstimator() (includes fitted locfit object)
+#' @param train_data Result from get_kde_training_data() (training points)
+#' @param title Optional plot title
+#' @param n_grid Number of grid points for density evaluation (default 50)
+#' @param show_points Whether to overlay training points (default TRUE)
+#' @return A ggplot2 object
+#' @import ggplot2
+#' @export
+plot_kde_with_data <- function(kde_result, train_data, title = NULL, n_grid = 50, show_points = TRUE) {
+  is_2d <- attr(train_data, "is_2d")
+  transformation <- attr(train_data, "transformation")
+  epsilon <- attr(train_data, "epsilon")
+  epsilon.max <- attr(train_data, "epsilon.max")
+  lfit <- attr(kde_result, "lfit")
+  
+  if (is.null(lfit)) {
+    stop("kde_result must include locfit object (returned by kernelEstimator)")
+  }
+  
+  trans <- switch(transformation, 
+                  ident = identity, 
+                  cloglog = function(x) -log(-log(x)),
+                  probit = qnorm)
+  
+  if (is_2d) {
+    # Create evaluation grid in transformed space
+    s1_range <- range(train_data$s1)
+    s2_range <- range(train_data$s2)
+    s1_grid <- seq(s1_range[1], s1_range[2], length.out = n_grid)
+    s2_grid <- seq(s2_range[1], s2_range[2], length.out = n_grid)
+    grid <- expand.grid(s1 = s1_grid, s2 = s2_grid)
+    
+    # Evaluate density on grid
+    grid$density <- predict(lfit, newdata = grid)
+    
+    # Create contour plot
+    p <- ggplot2::ggplot(grid, ggplot2::aes(x = s1, y = s2, z = density)) +
+      ggplot2::geom_contour_filled(alpha = 0.7) +
+      ggplot2::scale_fill_viridis_d(option = "viridis") +
+      ggplot2::labs(
+        x = if (transformation == "probit") "Φ⁻¹(covariate)" else transformation,
+        y = if (transformation == "probit") "Φ⁻¹(p-value)" else transformation,
+        title = title %||% "KDE Density with Training Data",
+        fill = "Density"
+      ) +
+      ggplot2::theme_minimal()
+    
+    # Overlay training points if requested
+    if (show_points) {
+      p <- p + ggplot2::geom_point(
+        data = train_data, 
+        ggplot2::aes(x = s1, y = s2, size = weight),
+        color = "white", alpha = 0.4, inherit.aes = FALSE
+      ) +
+      ggplot2::scale_size_continuous(range = c(0.3, 2))
+    }
+    
+    # Add boundary lines
+    if (transformation == "probit") {
+      boundary_val <- qnorm(epsilon.max)
+      p <- p + 
+        ggplot2::geom_vline(xintercept = boundary_val, linetype = "dashed", color = "red") +
+        ggplot2::geom_hline(yintercept = boundary_val, linetype = "dashed", color = "red")
+    }
+    
+  } else {
+    # 1D case: evaluate density on grid
+    s_range <- range(train_data$s)
+    s_grid <- seq(s_range[1], s_range[2], length.out = n_grid * 5)  # More points for smooth curve
+    density_vals <- predict(lfit, newdata = s_grid)
+    grid <- data.frame(s = s_grid, density = density_vals)
+    
+    # Create plot
+    p <- ggplot2::ggplot() +
+      ggplot2::geom_line(data = grid, ggplot2::aes(x = s, y = density), 
+                        color = "darkblue", linewidth = 1.2) +
+      ggplot2::labs(
+        x = if (transformation == "probit") "Φ⁻¹(p-value)" else transformation,
+        y = "Density",
+        title = title %||% "KDE Density with Training Data"
+      ) +
+      ggplot2::theme_minimal()
+    
+    # Overlay training points if requested
+    if (show_points) {
+      p <- p + ggplot2::geom_rug(
+        data = train_data,
+        ggplot2::aes(x = s, alpha = weight),
+        sides = "b", length = ggplot2::unit(0.05, "npc")
+      ) +
+      ggplot2::scale_alpha_continuous(range = c(0.2, 0.8))
+    }
+    
+    # Add boundary line
+    if (transformation == "probit") {
+      boundary_val <- qnorm(epsilon.max)
+      p <- p + 
+        ggplot2::geom_vline(xintercept = boundary_val, linetype = "dashed", color = "red")
+    }
+  }
+  
+  return(p)
+}
