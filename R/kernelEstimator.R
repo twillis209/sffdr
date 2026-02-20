@@ -120,6 +120,198 @@ kernelEstimator <- function(x,
 #' Extract KDE Training Data
 #'
 #' Returns the transformed data points that kernelEstimator would use for fitting,
+#' after all preprocessing (clamping, transformation, subsampling, weighting).
+#'
+#' @param x Numeric vector of p-values (1D) or 2-column matrix with 
+#'   (covariate, p-values) for 2D case.
+#' @param weights Optional numeric vector of weights (e.g., LD score weights).
+#' @param subsample Maximum number of points to subsample. NULL = no subsampling.
+#' @param epsilon Lower bound for clamping. Default: 1e-15.
+#' @param epsilon.max Upper bound for clamping. Default: 0.999.
+#' @param transformation One of "probit", "cloglog", or "ident". Default: "probit".
+#'
+#' @return Data frame with transformed coordinates and weights.
+#'   For 2D: columns s1, s2, weight
+#'   For 1D: columns s, weight
+#'
+#' @export
+get_kde_training_data <- function(
+  x,
+  weights = NULL,
+  subsample = 1e7,
+  epsilon = 1e-15,
+  epsilon.max = 0.999,
+  transformation = "probit"
+) {
+  # Validate weights
+  if (!is.null(weights)) {
+    n_obs <- if (is.matrix(x)) nrow(x) else length(x)
+    validate_weights(weights, n_obs)
+  }
+  
+  # Check dimensionality
+  is_2d <- is.matrix(x) && ncol(x) >= 2
+  
+  # Set up transformation
+  trans <- switch(transformation,
+                  probit = qnorm,
+                  cloglog = function(v) -log(-log(v)),
+                  ident = identity)
+  
+  # Process values (clamp)
+  process_vals <- function(vals) {
+    vals <- pmax(vals, epsilon)
+    vals <- pmin(vals, epsilon.max)
+  }
+  
+  x_processed <- process_vals(x)
+  
+  # Transform
+  s <- trans(x_processed)
+  
+  # Subsample if needed
+  if (!is.null(subsample)) {
+    if (is_2d && nrow(s) > subsample) {
+      idx <- sample(nrow(s), subsample)
+      s <- s[idx, , drop = FALSE]
+      if (!is.null(weights)) {
+        weights <- weights[idx]
+      }
+    } else if (!is_2d && length(s) > subsample) {
+      idx <- sample(length(s), subsample)
+      s <- s[idx]
+      if (!is.null(weights)) {
+        weights <- weights[idx]
+      }
+    }
+  }
+  
+  # Build result
+  if (is_2d) {
+    result <- data.frame(
+      s1 = s[, 1],
+      s2 = s[, 2],
+      weight = if (is.null(weights)) rep(1.0, nrow(s)) else weights
+    )
+  } else {
+    result <- data.frame(
+      s = s,
+      weight = if (is.null(weights)) rep(1.0, length(s)) else weights
+    )
+  }
+  
+  # Add attributes for plotting
+  attr(result, "transformation") <- transformation
+  attr(result, "epsilon") <- epsilon
+  attr(result, "epsilon.max") <- epsilon.max
+  attr(result, "n_effective") <- sum(result$weight)
+  attr(result, "is_2d") <- is_2d
+  attr(result, "has_weights") <- !is.null(weights)
+  
+  return(result)
+}
+
+
+#' Plot KDE Training Data
+#'
+#' Visualize the transformed data landscape that kernelEstimator fits to.
+#'
+#' @param data Data frame from get_kde_training_data()
+#' @param title Optional plot title
+#'
+#' @return ggplot2 object
+#'
+#' @import ggplot2
+#' @export
+plot_kde_training_data <- function(data, title = "KDE Training Data") {
+  
+  is_2d <- attr(data, "is_2d")
+  trans <- attr(data, "transformation")
+  epsilon <- attr(data, "epsilon")
+  epsilon.max <- attr(data, "epsilon.max")
+  n_eff <- attr(data, "n_effective")
+  has_weights <- attr(data, "has_weights")
+  
+  if (is_2d) {
+    # 2D scatterplot
+    if (has_weights) {
+      # Color by weight if available
+      p <- ggplot2::ggplot(data, ggplot2::aes(x = s1, y = s2, 
+                                               color = weight, size = weight)) +
+        ggplot2::geom_point(alpha = 0.6) +
+        ggplot2::scale_color_viridis_c(name = "Weight", option = "plasma") +
+        ggplot2::scale_size_continuous(range = c(0.5, 3), guide = "none")
+    } else {
+      # Uniform color if no weights
+      p <- ggplot2::ggplot(data, ggplot2::aes(x = s1, y = s2)) +
+        ggplot2::geom_point(alpha = 0.6, color = "#377EB8", size = 1)
+    }
+    
+    p <- p +
+      ggplot2::labs(
+        x = sprintf("%s(covariate)", if (trans == "probit") "Φ⁻¹" else trans),
+        y = sprintf("%s(p-value)", if (trans == "probit") "Φ⁻¹" else trans),
+        title = title,
+        subtitle = sprintf("n = %d, n_eff = %.0f%s", 
+                          nrow(data), n_eff,
+                          if (has_weights) ", LD-weighted" else "")
+      ) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(
+        legend.position = "right",
+        plot.title = ggplot2::element_text(face = "bold", size = 14),
+        plot.subtitle = ggplot2::element_text(size = 10, color = "gray30")
+      )
+    
+    # Add reference lines if probit
+    if (trans == "probit") {
+      p <- p +
+        ggplot2::geom_hline(yintercept = qnorm(epsilon.max), 
+                   linetype = "dashed", color = "gray40", alpha = 0.7) +
+        ggplot2::geom_hline(yintercept = qnorm(epsilon), 
+                   linetype = "dashed", color = "gray40", alpha = 0.7) +
+        ggplot2::annotate("text", x = Inf, y = qnorm(epsilon.max),
+                 label = sprintf("ε.max = %.3f", epsilon.max),
+                 hjust = 1.1, vjust = -0.5, size = 3, color = "gray40")
+    }
+    
+  } else {
+    # 1D density plot
+    p <- ggplot2::ggplot(data, ggplot2::aes(x = s, weight = weight)) +
+      ggplot2::geom_histogram(ggplot2::aes(y = ggplot2::after_stat(density)), 
+                     bins = 50, fill = "#377EB8", alpha = 0.7, color = "white") +
+      ggplot2::geom_density(color = "#E41A1C", linewidth = 1) +
+      ggplot2::labs(
+        x = sprintf("%s(p-value)", if (trans == "probit") "Φ⁻¹" else trans),
+        y = "Density",
+        title = title,
+        subtitle = sprintf("n = %d, n_eff = %.0f%s", 
+                          nrow(data), n_eff,
+                          if (has_weights) ", weighted" else "")
+      ) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(
+        plot.title = ggplot2::element_text(face = "bold", size = 14),
+        plot.subtitle = ggplot2::element_text(size = 10, color = "gray30")
+      )
+    
+    # Add reference lines if probit
+    if (trans == "probit") {
+      p <- p +
+        ggplot2::geom_vline(xintercept = qnorm(epsilon.max), 
+                   linetype = "dashed", color = "gray40") +
+        ggplot2::geom_vline(xintercept = qnorm(epsilon), 
+                   linetype = "dashed", color = "gray40")
+    }
+  }
+  
+  return(p)
+}
+
+
+#' Extract KDE Training Data
+#'
+#' Returns the transformed data points that kernelEstimator would use for fitting,
 #' after all preprocessing (clamping, transformation, downsampling, jitter).
 #'
 #' @param x Numeric vector of p-values (1D) or 2-column matrix with 
