@@ -33,7 +33,8 @@ kernelEstimator <- function(x,
                             epsilon.max = 0.999,
                             maxk = 10000,
                             trim = 1e-15,
-                            nn = NULL, ...) {
+                            nn = NULL,
+                            indep_snps = NULL, ...) {
   . <- NULL
   
   # Get training data using shared preprocessing
@@ -43,7 +44,8 @@ kernelEstimator <- function(x,
     subsample = subsample,
     weights = weights,
     epsilon = epsilon,
-    epsilon.max = epsilon.max
+    epsilon.max = epsilon.max,
+    indep_snps = indep_snps
   )
   
   # Extract transformed training points and weights
@@ -123,13 +125,40 @@ kernelEstimator <- function(x,
 #' @param weights Optional weights vector
 #' @param epsilon Lower bound
 #' @param epsilon.max Upper bound
+#' @param indep_snps Optional logical vector or indices indicating independent SNPs to use
 #' @export
 get_kde_training_data <- function(x,
                                    transformation = "probit",
                                    subsample = 1e+07,
                                    weights = NULL,
                                    epsilon = 1e-15,
-                                   epsilon.max = 0.999) {
+                                   epsilon.max = 0.999,
+                                   indep_snps = NULL) {
+  # Filter to independent SNPs first if provided
+  if (!is.null(indep_snps)) {
+    if (is.logical(indep_snps)) {
+      # Logical vector
+      if (is.matrix(x)) {
+        x <- x[indep_snps, , drop = FALSE]
+      } else {
+        x <- x[indep_snps]
+      }
+      if (!is.null(weights)) {
+        weights <- weights[indep_snps]
+      }
+    } else {
+      # Numeric indices
+      if (is.matrix(x)) {
+        x <- x[indep_snps, , drop = FALSE]
+      } else {
+        x <- x[indep_snps]
+      }
+      if (!is.null(weights)) {
+        weights <- weights[indep_snps]
+      }
+    }
+  }
+  
   if (!is.null(weights)) {
     n_obs <- if (is.matrix(x)) nrow(x) else length(x)
     validate_weights(weights, n_obs)
