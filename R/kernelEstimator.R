@@ -328,7 +328,7 @@ plot_kde_with_data <- function(kde_result, train_data, title = NULL, n_grid = 50
       p <- p + ggplot2::geom_point(
         data = train_data, 
         ggplot2::aes(x = s1, y = s2, size = weight),
-        color = "white", alpha = 0.4, inherit.aes = FALSE
+        color = "black", alpha = 0.4, inherit.aes = FALSE
       ) +
       ggplot2::scale_size_continuous(range = c(0.3, 2))
     }
