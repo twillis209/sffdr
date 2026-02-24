@@ -220,6 +220,20 @@ kernelEstimator <- function(
     }
   }
 
+  # Enforce monotonicity: f(p, z) must be non-increasing in p for fixed z
+  if (is_matrix) {
+    res$fx <- monotonize_density_2d(
+      z_vals = eval.points[, 1],
+      p_vals = eval.points[, 2],
+      fx = res$fx
+    )
+  } else {
+    res$fx <- monotonize_density_1d(
+      p_vals = eval.points,
+      fx = res$fx
+    )
+  }
+
   attr(res, "lfit") <- lfit
   res
 }
@@ -501,4 +515,64 @@ fit_strategy_final <- function(
   }
 
   NULL
+}
+
+
+#' Enforce Monotonicity on 2D Density (non-increasing in p for fixed z)
+#'
+#' Bins observations by z, then within each bin applies isotonic regression
+#' (pool-adjacent-violators) to ensure density is non-increasing in p.
+#'
+#' @param z_vals Numeric vector of z (surrogate) values on original scale.
+#' @param p_vals Numeric vector of p-values on original scale.
+#' @param fx Numeric vector of density estimates to monotonize.
+#' @param n_zbins Number of z-bins. Default 100.
+#' @return Monotonized density vector (same length as fx).
+#' @keywords internal
+monotonize_density_2d <- function(z_vals, p_vals, fx, n_zbins = 100) {
+  fx_mono <- fx
+
+  # Bin by z
+  z_breaks <- quantile(z_vals, probs = seq(0, 1, length.out = n_zbins + 1),
+                        na.rm = TRUE)
+  z_breaks <- unique(z_breaks)
+  if (length(z_breaks) < 2) return(fx)
+
+  z_bin <- findInterval(z_vals, z_breaks, all.inside = TRUE)
+
+  for (b in seq_len(max(z_bin))) {
+    idx <- which(z_bin == b)
+    if (length(idx) < 3) next
+
+    # Sort by p-value (ascending) within this z-bin
+    ord <- order(p_vals[idx])
+    sorted_idx <- idx[ord]
+
+    # PAVA for non-increasing: negate, apply isoreg (non-decreasing), negate back
+    dens <- fx[sorted_idx]
+    iso <- isoreg(-dens)
+    fx_mono[sorted_idx] <- -iso$yf
+  }
+
+  fx_mono
+}
+
+
+#' Enforce Monotonicity on 1D Density (non-increasing in p)
+#'
+#' Applies isotonic regression to ensure density is non-increasing in p.
+#'
+#' @param p_vals Numeric vector of p-values.
+#' @param fx Numeric vector of density estimates.
+#' @return Monotonized density vector.
+#' @keywords internal
+monotonize_density_1d <- function(p_vals, fx) {
+  ord <- order(p_vals)
+  dens <- fx[ord]
+
+  iso <- isoreg(-dens)
+  fx_mono <- numeric(length(fx))
+  fx_mono[ord] <- -iso$yf
+
+  fx_mono
 }
