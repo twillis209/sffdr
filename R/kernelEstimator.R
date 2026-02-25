@@ -115,6 +115,7 @@ kernelEstimator <- function(
   nn = NULL,
   tail_threshold = -2,
   weights = NULL,
+  n_zbins = 100,
   ...
 ) {
   # Input validation
@@ -225,7 +226,8 @@ kernelEstimator <- function(
     res$fx <- monotonize_density_2d(
       z_vals = eval.points[, 1],
       p_vals = eval.points[, 2],
-      fx = res$fx
+      fx = res$fx,
+      n_zbins = n_zbins
     )
   } else {
     res$fx <- monotonize_density_1d(
