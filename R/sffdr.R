@@ -35,7 +35,12 @@
 #'   Default is \code{.Machine$double.xmin}.
 #' @param nn Numeric; nearest-neighbor bandwidth for \code{\link{kernelEstimator}}.
 #'   If NULL (default), automatically selected as ~5000 neighbors.
-#' @param monotone Logical; if TRUE, enforces monotonicity of the estimated density with respect to p-values within bins of the surrogate variable. Default is FALSE.
+#' @param monotone Logical or character; controls monotonicity enforcement.
+#'   Options: FALSE (no enforcement, default), TRUE or "cpp" (fast C++ running minimum),
+#'   "pava" (R-based pool-adjacent-violators algorithm). The C++ method is faster
+#'   but more aggressive; PAVA smooths violations across neighbors. Default: FALSE.
+#' @param monotone_zbins Integer; number of z-bins for PAVA method. Ignored for
+#'   C++ method. Default: NULL (auto-scaled based on sample size).
 #' @param fp_ties Logical; whether to break ties in functional p-values using the
 #'   original p-value ordering. Default is TRUE.
 #' @param seed Integer; random seed for reproducibility of rank tie-breaking.
@@ -94,6 +99,7 @@ sffdr <- function(
   epsilon = .Machine$double.xmin,
   nn = NULL,
   monotone = FALSE,
+  monotone_zbins = NULL,
   fp_ties = TRUE,
   seed = 2026,
   verbose = TRUE,
@@ -227,27 +233,59 @@ sffdr <- function(
     marginal_fz <- 1
   }
 
-  if (monotone) {
-    if (verbose) {
-      message("  Enforcing conditional monotonicity on estimated density...")
+  # Apply monotonicity enforcement if requested
+  if (!isFALSE(monotone)) {
+    # Normalize monotone parameter
+    monotone_method <- if (isTRUE(monotone)) {
+      "cpp"
+    } else if (is.character(monotone)) {
+      match.arg(tolower(monotone), c("cpp", "pava"))
+    } else {
+      stop("'monotone' must be FALSE, TRUE, 'cpp', or 'pava'")
     }
 
-    eff_n <- if (has_weights) sum(w_valid) else n_valid
+    if (verbose) {
+      message(sprintf(
+        "  Enforcing conditional monotonicity (%s method)...",
+        toupper(monotone_method)
+      ))
+    }
 
-    min_snps_per_bin <- 1000
-    n_bins <- as.integer(max(10, min(1000, floor(eff_n / min_snps_per_bin))))
+    if (monotone_method == "cpp") {
+      # Use fast C++ running minimum
+      eff_n <- if (has_weights) sum(w_valid) else n_valid
 
-    groups <- as.integer(cut(z, breaks = n_bins, labels = FALSE))
+      min_snps_per_bin <- 1000
+      n_bins <- as.integer(max(10, min(1000, floor(eff_n / min_snps_per_bin))))
 
-    ord <- order(groups, p_valid)
+      groups <- as.integer(cut(z, breaks = n_bins, labels = FALSE))
 
-    smoothed_fx <- monoSmooth_conditional(
-      pvalue = p_valid[ord],
-      density = fx_valid[ord],
-      group = groups[ord]
-    )
+      ord <- order(groups, p_valid)
 
-    fx_valid[ord] <- smoothed_fx
+      smoothed_fx <- monoSmooth_conditional(
+        pvalue = p_valid[ord],
+        density = fx_valid[ord],
+        group = groups[ord]
+      )
+
+      fx_valid[ord] <- smoothed_fx
+
+    } else if (monotone_method == "pava") {
+      # Use PAVA (pool-adjacent-violators) algorithm
+      eff_n <- if (has_weights) sum(w_valid) else n_valid
+
+      # Auto-scale bins if not specified
+      if (is.null(monotone_zbins)) {
+        monotone_zbins <- as.integer(max(20, min(200, floor(eff_n / 200))))
+      }
+
+      fx_valid <- monotonize_density_2d(
+        z_vals = z,
+        p_vals = p_valid,
+        fx = fx_valid,
+        n_zbins = monotone_zbins
+      )
+    }
   }
 
   # Compute functional local FDR
@@ -306,3 +344,43 @@ sffdr <- function(
 #' @useDynLib sffdr, .registration = TRUE
 #' @importFrom Rcpp sourceCpp
 NULL
+
+
+#' Enforce Monotonicity on 2D Density (non-increasing in p for fixed z)
+#'
+#' Bins observations by z, then within each bin applies isotonic regression
+#' (pool-adjacent-violators) to ensure density is non-increasing in p.
+#'
+#' @param z_vals Numeric vector of z (surrogate) values on original scale.
+#' @param p_vals Numeric vector of p-values on original scale.
+#' @param fx Numeric vector of density estimates to monotonize.
+#' @param n_zbins Number of z-bins. Default 100.
+#' @return Monotonized density vector (same length as fx).
+#' @keywords internal
+monotonize_density_2d <- function(z_vals, p_vals, fx, n_zbins = 100) {
+  fx_mono <- fx
+
+  # Bin by z
+  z_breaks <- quantile(z_vals, probs = seq(0, 1, length.out = n_zbins + 1),
+                        na.rm = TRUE)
+  z_breaks <- unique(z_breaks)
+  if (length(z_breaks) < 2) return(fx)
+
+  z_bin <- findInterval(z_vals, z_breaks, all.inside = TRUE)
+
+  for (b in seq_len(max(z_bin))) {
+    idx <- which(z_bin == b)
+    if (length(idx) < 3) next
+
+    # Sort by p-value (ascending) within this z-bin
+    ord <- order(p_vals[idx])
+    sorted_idx <- idx[ord]
+
+    # PAVA for non-increasing: negate, apply isoreg (non-decreasing), negate back
+    dens <- fx[sorted_idx]
+    iso <- isoreg(-dens)
+    fx_mono[sorted_idx] <- -iso$yf
+  }
+
+  fx_mono
+}
