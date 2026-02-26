@@ -35,12 +35,9 @@
 #'   Default is \code{.Machine$double.xmin}.
 #' @param nn Numeric; nearest-neighbor bandwidth for \code{\link{kernelEstimator}}.
 #'   If NULL (default), automatically selected as ~5000 neighbors.
-#' @param monotone Logical or character; controls monotonicity enforcement.
-#'   Options: FALSE (no enforcement, default), TRUE or "cpp" (fast C++ running minimum),
-#'   "pava" (R-based pool-adjacent-violators algorithm). The C++ method is faster
-#'   but more aggressive; PAVA smooths violations across neighbors. Default: FALSE.
-#' @param monotone_zbins Integer; number of z-bins for PAVA method. Ignored for
-#'   C++ method. Default: NULL (auto-scaled based on sample size).
+#' @param monotone Logical; if TRUE, enforces monotonicity of the estimated density with respect to p-values within bins of the surrogate variable. Default is FALSE.
+#' @param monotone_method Character; method for enforcing monotonicity. Options are "min" (running minimum) or "pava" (Pool Adjacent Violators Algorithm). Default is "min".
+#'   We do not recommend "pava" for GWAS data sets due to LD, but it may be better for expression data.
 #' @param fp_ties Logical; whether to break ties in functional p-values using the
 #'   original p-value ordering. Default is TRUE.
 #' @param seed Integer; random seed for reproducibility of rank tie-breaking.
@@ -99,7 +96,7 @@ sffdr <- function(
   epsilon = .Machine$double.xmin,
   nn = NULL,
   monotone = FALSE,
-  monotone_zbins = NULL,
+  monotone_method = c("min", "pava"),
   fp_ties = TRUE,
   seed = 2026,
   verbose = TRUE,
@@ -121,6 +118,7 @@ sffdr <- function(
 
   # Input validation
   n <- length(p.value)
+  monotone_method <- match.arg(monotone_method, c("min", "pava"))
 
   if (!is.numeric(p.value)) {
     stop("'p.value' must be a numeric vector.")
@@ -168,6 +166,11 @@ sffdr <- function(
 
   # Handle inverse LD weights for density estimation
   w_valid <- if (!is.null(weights)) weights[valid] else NULL
+
+  if (!is.null(w_valid)) {
+    w_valid <- pmin(pmax(w_valid, 1e-6), 1.0)
+  }
+
   has_weights <- !is.null(w_valid) && !all(is.na(w_valid))
 
   if (has_weights && any(is.na(w_valid)) && verbose) {
@@ -233,59 +236,48 @@ sffdr <- function(
     marginal_fz <- 1
   }
 
-  # Apply monotonicity enforcement if requested
-  if (!isFALSE(monotone)) {
-    # Normalize monotone parameter
-    monotone_method <- if (isTRUE(monotone)) {
-      "cpp"
-    } else if (is.character(monotone)) {
-      match.arg(tolower(monotone), c("cpp", "pava"))
-    } else {
-      stop("'monotone' must be FALSE, TRUE, 'cpp', or 'pava'")
+  if (monotone) {
+    if (verbose) {
+      msg <- sprintf(
+        "  Enforcing conditional monotonicity using the '%s' method...",
+        monotone_method
+      )
+      message(msg)
     }
+
+    # Calculate Effective N (accounting for LD weights)
+    eff_n <- if (!is.null(weights)) sum(w_valid, na.rm = TRUE) else n_valid
+
+    # Target ~1,000 independent SNPs per bin
+    n_bins <- as.integer(max(10, min(1000, floor(eff_n / 1000))))
 
     if (verbose) {
       message(sprintf(
-        "  Enforcing conditional monotonicity (%s method)...",
-        toupper(monotone_method)
+        "    Dividing data into %d conditional surrogate bins...",
+        n_bins
       ))
     }
 
-    if (monotone_method == "cpp") {
-      # Use fast C++ running minimum
-      eff_n <- if (has_weights) sum(w_valid) else n_valid
+    groups <- as.integer(cut(z, breaks = n_bins, labels = FALSE))
+    ord <- order(groups, p_valid)
 
-      min_snps_per_bin <- 1000
-      n_bins <- as.integer(max(10, min(1000, floor(eff_n / min_snps_per_bin))))
-
-      groups <- as.integer(cut(z, breaks = n_bins, labels = FALSE))
-
-      ord <- order(groups, p_valid)
-
+    # Route to the appropriate C++ engine based on user choice
+    if (monotone_method == "min") {
       smoothed_fx <- monoSmooth_conditional(
         pvalue = p_valid[ord],
         density = fx_valid[ord],
         group = groups[ord]
       )
-
-      fx_valid[ord] <- smoothed_fx
-
-    } else if (monotone_method == "pava") {
-      # Use PAVA (pool-adjacent-violators) algorithm
-      eff_n <- if (has_weights) sum(w_valid) else n_valid
-
-      # Auto-scale bins if not specified
-      if (is.null(monotone_zbins)) {
-        monotone_zbins <- as.integer(max(20, min(200, floor(eff_n / 200))))
-      }
-
-      fx_valid <- monotonize_density_2d(
-        z_vals = z,
-        p_vals = p_valid,
-        fx = fx_valid,
-        n_zbins = monotone_zbins
+    } else {
+      smoothed_fx <- monoSmooth_pava(
+        pvalue = p_valid[ord],
+        density = fx_valid[ord],
+        group = groups[ord]
       )
     }
+
+    # Invert the order to map back to valid subset
+    fx_valid[ord] <- smoothed_fx
   }
 
   # Compute functional local FDR
