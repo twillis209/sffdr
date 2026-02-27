@@ -280,13 +280,15 @@ fit_bivariate_density <- function(
   }
 
   # 4. Construct Data Frames
+  fit_mat <- train_s[idx_final, , drop = FALSE]
   fit_data <- data.frame(
-    V1 = train_s[idx_final, 1],
-    V2 = train_s[idx_final, 2],
+    V1 = fit_mat[, 1],
+    V2 = fit_mat[, 2],
     w = w_vec
   )
 
-  valid_data <- fit_data[fit_data$V2 < tail_threshold, , drop = FALSE]
+  valid_mask <- fit_mat[, 2] < tail_threshold
+  valid_data <- fit_data[valid_mask, , drop = FALSE]
 
   # 5. Adaptive Bandwidth Selection
   n_eff <- sum(fit_data$w)
@@ -412,7 +414,6 @@ fit_strategy_final <- function(
       name = "High-Res Tcub",
       deg = 2,
       kern = "tcub",
-      ev = rbox(),
       nn = nn_high,
       h = h_safe
     ),
@@ -420,7 +421,6 @@ fit_strategy_final <- function(
       name = "High-Res Gauss",
       deg = 2,
       kern = "gauss",
-      ev = rbox(),
       nn = nn_high,
       h = h_safe
     ),
@@ -428,7 +428,6 @@ fit_strategy_final <- function(
       name = "Safe Tcub",
       deg = 2,
       kern = "tcub",
-      ev = rbox(),
       nn = nn_safe,
       h = 2 * h_safe
     ),
@@ -436,11 +435,12 @@ fit_strategy_final <- function(
       name = "Linear Tree",
       deg = 1,
       kern = "tcub",
-      ev = rbox(),
       nn = 2 * nn_safe,
       h = 2 * h_safe
     )
   )
+
+  ev_grid <- rbox()
 
   for (s in strats) {
     if (verbose) {
@@ -466,7 +466,7 @@ fit_strategy_final <- function(
               data = data,
               weights = data$w,
               kern = s$kern,
-              ev = s$ev,
+              ev = ev_grid,
               maxit = maxit,
               maxk = maxk,
               ...

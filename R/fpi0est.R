@@ -45,6 +45,8 @@
 #' @param constrained.p Logical; use constrained binomial family. Default is TRUE.
 #' @param tol Numeric; convergence tolerance. Default is 1e-9.
 #' @param maxit Integer; maximum iterations. Default is 200.
+#' @param ncores Integer; number of cores for parallel lambda fitting.
+#'   Uses \code{parallel::mclapply} on Unix systems. Default is 1 (sequential).
 #' @param verbose Logical; print progress messages. Default is TRUE.
 #' @param ... Additional arguments passed to \code{\link[fastglm]{fastglm}}.
 #'
@@ -92,6 +94,7 @@ fpi0est <- function(
   constrained.p = TRUE,
   tol = 1e-9,
   maxit = 200,
+  ncores = 1L,
   verbose = TRUE,
   ...
 ) {
@@ -193,8 +196,13 @@ fpi0est <- function(
     w_fit <- pmin(pmax(w_fit, 1e-6), 1.0)
   }
 
-  # Build formula for binomial regression
+  # Build formula and precompute design matrix once (shared across all lambda)
   fm <- formula(paste("phi", paste(pi0_model, collapse = " ")))
+  z_fit$phi <- 0  # placeholder to build model frame
+  mf <- model.frame(fm, data = z_fit, na.action = na.pass)
+  tf <- attr(mf, "terms")
+  X_fit <- model.matrix(tf, mf)
+  offset_fit <- rep(0, nrow(X_fit))
 
   if (verbose) {
     message(sprintf(
@@ -203,9 +211,9 @@ fpi0est <- function(
     ))
   }
 
-  # Fit pi0 model at a single lambda value using fastglm
+  # Fit pi0 model at a single lambda value using precomputed design matrix
   fit_pi0_at_lambda <- function(lambda_val) {
-    z_fit$phi <- as.numeric(p_fit >= lambda_val)
+    y <- as.numeric(p_fit >= lambda_val)
 
     fam <- if (constrained.p) {
       constrained.binomial(1 - lambda_val)
@@ -213,22 +221,47 @@ fpi0est <- function(
       binomial()
     }
 
-    suppressWarnings(
-      updated_fastglm(
-        formula = fm,
-        data = z_fit,
+    rval <- suppressWarnings(
+      fastglm::fastglm(
+        x = X_fit,
+        y = y,
         family = fam,
         weights = w_fit,
+        offset = offset_fit,
+        method = 3L,
         tol = tol,
         maxit = maxit,
         ...
       )
     )
+
+    rval$terms <- tf
+    rval$call <- match.call()
+    rval$xlevels <- .getXlevels(tf, mf)
+    rval$formula <- fm
+    class(rval) <- "fastglm2"
+    rval
   }
 
   # Fit models across all lambda values
   fpi0_models <- data.frame(lambda = lambda)
-  fpi0_models$fpi0 <- .lapply_pb(lambda, fit_pi0_at_lambda, verbose = verbose)
+  use_parallel <- ncores > 1L && .Platform$OS.type == "unix"
+  if (use_parallel) {
+    if (verbose) {
+      message(sprintf("    (using %d cores)", ncores))
+    }
+    fpi0_models$fpi0 <- parallel::mclapply(
+      lambda, fit_pi0_at_lambda, mc.cores = ncores
+    )
+    # mclapply wraps errors in try-error; check for failures
+    failed <- vapply(fpi0_models$fpi0, inherits, logical(1), "try-error")
+    if (any(failed)) {
+      stop("Parallel lambda fitting failed for lambda = ",
+           paste(lambda[failed], collapse = ", "))
+    }
+  } else {
+    fpi0_models$fpi0 <- .lapply_pb(lambda, fit_pi0_at_lambda, verbose = verbose)
+  }
 
   # # Extract fitted pi0 values for all lambda
   fpi0_matrix <- sapply(seq_along(lambda), function(i) {
@@ -252,15 +285,22 @@ fpi0est <- function(
     )$pi0
   }
 
+  # Precompute shared quantities for MISE calculation
+  one_minus_ref <- 1 - ref_pi0
+  denom_k <- mean(one_minus_ref^2)
+
   mise_stats <- vapply(
     seq_along(lambda),
     function(i) {
       fpi0_i <- fpi0_matrix[, i]
-      k <- optimize(
-        function(k) mean((ref_pi0 - k * (1 - ref_pi0) - fpi0_i)^2),
-        interval = c(-1, 1)
-      )$minimum
-      phi_hat <- pmin(ref_pi0 - k * (1 - ref_pi0), 1)
+      # Closed-form solution for k that minimises mean((ref_pi0 - k*(1-ref_pi0) - fpi0_i)^2)
+      k <- if (denom_k > 0) {
+        mean((ref_pi0 - fpi0_i) * one_minus_ref) / denom_k
+      } else {
+        0
+      }
+      k <- max(-1, min(1, k))
+      phi_hat <- pmin(ref_pi0 - k * one_minus_ref, 1)
       omega <- mean((fpi0_i - phi_hat)^2)
       delta_sq <- (max(mean(fpi0_i) - pi0_global, 0))^2
       omega + delta_sq
@@ -275,39 +315,18 @@ fpi0est <- function(
   fpi0_models$chosen <- fpi0_models$lambda == lambda_hat
   fpi0_selected <- fpi0_models[fpi0_models$chosen, ]
 
-  # Predict for all valid observations (chunk-wise for large data)
+  # Predict for all valid observations
   if (verbose) {
     message("  Generating predictions...")
   }
 
-  chunk_size <- 500000
   n_valid <- nrow(z_valid)
 
-  if (n_valid > chunk_size) {
-    fpi0_pred <- numeric(n_valid)
-    n_chunks <- ceiling(n_valid / chunk_size)
-
-    for (i in seq_len(n_chunks)) {
-      idx_start <- chunk_size * (i - 1) + 1
-      idx_end <- min(chunk_size * i, n_valid)
-
-      fpi0_pred[idx_start:idx_end] <- pmin(
-        predict(
-          fpi0_selected$fpi0[[1]],
-          newdata = z_valid[idx_start:idx_end, , drop = FALSE],
-          type = "response"
-        ) /
-          (1 - lambda_hat),
-        1
-      )
-    }
-  } else {
-    fpi0_pred <- pmin(
-      predict(fpi0_selected$fpi0[[1]], newdata = z_valid, type = "response") /
-        (1 - lambda_hat),
-      1
-    )
-  }
+  fpi0_pred <- pmin(
+    predict(fpi0_selected$fpi0[[1]], newdata = z_valid, type = "response") /
+      (1 - lambda_hat),
+    1
+  )
 
   # Fill results including NAs
   fpi0_out <- rep(1, length(p))
@@ -611,7 +630,12 @@ pi0est_weighted <- function(
     stop("ERROR: Lambda must be within [0, 1).")
   }
 
-  W <- sapply(lambda, function(l) sum(weights[p >= l]))
+  # Vectorised weighted count: sort p descending, cumsum weights, use findInterval
+  ord <- order(p, decreasing = TRUE)
+  cum_w <- cumsum(weights[ord])
+  p_sorted_desc <- p[ord]
+  idx <- findInterval(-lambda, -p_sorted_desc)
+  W <- ifelse(idx == 0L, 0, cum_w[idx])
 
   pi0 <- W / (m_eff * (1 - lambda))
   pi0.lambda <- pi0
