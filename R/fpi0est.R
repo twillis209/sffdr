@@ -496,7 +496,7 @@ predict.fastglm2 <- function(
 get_predict <- function(object, newdata, na.action = na.pass, ...) {
   tt <- terms(object)
   if (missing(newdata) || is.null(newdata)) {
-    if (is.null(object$fitted.values)) {
+    if (!is.null(object$fitted.values)) {
       return(object$fitted.values)
     }
   } else {

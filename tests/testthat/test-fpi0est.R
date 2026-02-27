@@ -120,7 +120,7 @@ test_that("fpi0est handles small datasets", {
   expect_true(all(result$fpi0 >= 0 & result$fpi0 <= 1))
 })
 
-test_weighted_pi0_fixed <- function() {
+test_that("weighted pi0 estimation recovers true pi0 under LD inflation", {
   set.seed(42)
 
   n_indep <- 10000
@@ -159,17 +159,11 @@ test_weighted_pi0_fixed <- function() {
     " (Recovers the 0.90 background!)"
   )
 
-  if (abs(res_weighted$pi0 - 0.90) < 0.05 && res_unweighted$pi0 > 0.97) {
-    message(
-      "PASS: The inverse-LD weights successfully neutralized the LD block!"
-    )
-  } else {
-    message("FAIL")
-  }
-}
+  expect_true(abs(res_weighted$pi0 - 0.90) < 0.05)
+  expect_true(res_unweighted$pi0 > 0.97)
+})
 
-test_fpi0est_weights <- function() {
-  message("Generating synthetic GWAS data with a covariate-linked LD block...")
+test_that("weighted fpi0est recovers true functional pi0 under LD", {
   set.seed(123)
 
   # --- 1. Simulate the Independent Biological Background ---
@@ -239,11 +233,6 @@ test_fpi0est_weights <- function() {
     mae_w
   ))
 
-  if (mae_w < 0.05 && mae_unw > 0.075) {
-    message(
-      "\nPASS: fastglm correctly used the weights in the likelihood to ignore the LD bomb!"
-    )
-  } else {
-    message("\nFAIL: The weights did not protect the spline.")
-  }
-}
+  expect_true(mae_w < 0.05)
+  expect_true(mae_unw > 0.075)
+})

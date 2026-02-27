@@ -48,9 +48,7 @@ plot.sffdr <- function(x, rng = c(0, 5e-8), ...) {
     rng <- c(min(fp.ord), quantile(fp.ord, 1e-2))
   }
 
-  p.ord <- pvalues[fp.ord]
-
-  pi0 <- x$fpi0
+  pi0 <- x$fpi0[rm_na]
 
   pi0.df <- data.frame(
     z = rank(pi0, ties.method = "random")[which(
@@ -144,11 +142,9 @@ plot.sffdr <- function(x, rng = c(0, 5e-8), ...) {
     xlab("functional p-value") +
     scale_x_log10() +
     scale_y_log10() +
-    ylab("functional q-value") + #geom_point() +
-    theme_bw() +
+    ylab("functional q-value") +
     geom_line() +
-    theme_bw() +
-    scale_x_log10()
+    theme_bw()
 
   (p1 + p2) /
     (p3 + p4) +

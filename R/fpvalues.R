@@ -21,7 +21,11 @@
   rank_prop <- seq_along(lfdr_sorted) / length(lfdr_sorted)
 
   # P-value calculation
-  p_sorted <- (fdr_sorted * rank_prop) / max(fdr_sorted)
+  max_fdr <- max(fdr_sorted)
+  if (max_fdr < .Machine$double.xmin) {
+    max_fdr <- 1
+  }
+  p_sorted <- (fdr_sorted * rank_prop) / max_fdr
   p_sorted <- pmin(p_sorted, 1)
 
   p_final <- numeric(length(lfdr_clean))
@@ -88,6 +92,9 @@ fpvalues <- function(lfdr, p = NULL) {
 
   valid_fdr <- fdr_out[rm_na]
   max_fdr <- max(valid_fdr)
+  if (max_fdr < .Machine$double.xmin) {
+    max_fdr <- 1
+  }
   n_sub <- length(r)
 
   p_calculated <- (valid_fdr * (r / n_sub)) / max_fdr

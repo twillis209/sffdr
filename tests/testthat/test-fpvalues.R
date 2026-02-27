@@ -94,6 +94,25 @@ test_that("Input Validation matches lengths", {
   expect_error(fpvalues(lfdr, p), "Length of 'lfdr' and 'p' must match")
 })
 
+test_that("All-zero lfdr does not produce NaN", {
+  lfdr <- rep(0, 10)
+  res <- fpvalues(lfdr)
+
+  expect_false(any(is.nan(res$fp)))
+  expect_false(any(is.nan(res$fq)))
+  expect_true(all(res$fp >= 0 & res$fp <= 1))
+})
+
+test_that("All-zero lfdr with tie-breaking does not produce NaN", {
+  lfdr <- rep(0, 10)
+  p <- seq(0.01, 0.10, by = 0.01)
+  res <- fpvalues(lfdr, p = p)
+
+  expect_false(any(is.nan(res$fp)))
+  expect_false(any(is.nan(res$fq)))
+  expect_true(all(res$fp >= 0 & res$fp <= 1))
+})
+
 test_that("Signal Case: Correctly identifies and ranks mixed signal/noise", {
   # Construct a dataset:
   # 1. Strong Signal: lfdr=0.01, p=1e-6
