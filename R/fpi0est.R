@@ -1,17 +1,22 @@
 #' Estimate Functional Proportion of Null Tests
 #'
 #' @description
-#' Estimates the functional proportion of null tests (pi0) using a GLM approach
-#' with a constrained binomial family. This function fits models across multiple
-#' lambda thresholds and selects the optimal estimate via MISE minimization.
+#' Estimates the functional proportion of null tests (pi0) using either a GLM
+#' or GAM approach. Models are fit across multiple lambda thresholds and the
+#' optimal estimate is selected via MISE minimization.
 #'
 #' @details
 #' \strong{Algorithm:}
 #'
 #' \enumerate{
-#'   \item For each lambda threshold, fit a binomial GLM: \eqn{P(p \ge \lambda | z)}
-#'   \item Use constrained binomial family to ensure predictions in (0, 1)
-#'   \item Select optimal lambda via MISE minimization
+#'   \item For each lambda threshold, fit a regression model: \eqn{P(p \ge \lambda | z)}
+#'   \item \code{method = "glm"}: Uses a constrained binomial GLM with a
+#'     prespecified spline basis (from \code{\link{pi0_model}}).
+#'   \item \code{method = "gam"}: Uses \code{\link[mgcv]{bam}} with penalised
+#'     cubic regression splines and automatic smoothness selection via fast
+#'     REML. A \code{quasibinomial} family is used with post-hoc clamping to
+#'     \eqn{[0, 1-\lambda]}, removing the need to prespecify knot locations.
+#'   \item Select optimal lambda via MISE minimization.
 #' }
 #'
 #' \strong{Usage Patterns:}
@@ -19,8 +24,10 @@
 #' \strong{Pattern 1 (Recommended):} Use output from \code{\link{pi0_model}}
 #' \preformatted{
 #'   mpi0 <- pi0_model(z)
-#'   # Clean syntax:
+#'   # GLM (default):
 #'   fpi0_out <- fpi0est(p, mpi0)
+#'   # GAM alternative (automatic smoothness selection):
+#'   fpi0_out <- fpi0est(p, mpi0, method = "gam")
 #' }
 #'
 #' \strong{Pattern 2:} Manually specify formula and covariates
@@ -42,11 +49,21 @@
 #' @param weights Optional numeric vector of weights for density estimation. For GWAS data, this should be inverse LD scores. If these are available
 #'   then you don't have to use the indep_snps argument, as the weights will effectively prioritize independent SNPs in the fitting process.
 #' @param lambda Numeric vector of lambda thresholds. Default is \code{seq(0.05, 0.95, 0.05)}.
-#' @param constrained.p Logical; use constrained binomial family. Default is TRUE.
-#' @param tol Numeric; convergence tolerance. Default is 1e-9.
-#' @param maxit Integer; maximum iterations. Default is 200.
+#' @param method Character; fitting method. \code{"glm"} (default) uses
+#'   \code{\link[fastglm]{fastglm}} with the spline basis from \code{pi0_model}.
+#'   \code{"gam"} uses \code{\link[mgcv]{bam}} with penalised cubic regression
+#'   splines and automatic smoothness selection via REML. Requires \pkg{mgcv}.
+#' @param constrained.p Logical; use constrained binomial family for
+#'   \code{method = "glm"}. Ignored for \code{method = "gam"}, which uses
+#'   \code{quasibinomial} with post-hoc clamping. Default is TRUE.
+#' @param gam_k Integer; maximum basis dimension (number of knots) per smooth
+#'   term when \code{method = "gam"}. REML selects the effective degrees of
+#'   freedom automatically, so this is an upper bound. Default is 10.
+#' @param tol Numeric; convergence tolerance (GLM only). Default is 1e-9.
+#' @param maxit Integer; maximum iterations (GLM only). Default is 200.
 #' @param verbose Logical; print progress messages. Default is TRUE.
-#' @param ... Additional arguments passed to \code{\link[fastglm]{fastglm}}.
+#' @param ... Additional arguments passed to \code{\link[fastglm]{fastglm}}
+#'   (GLM) or \code{\link[mgcv]{bam}} (GAM).
 #'
 #' @examples
 #' # Import data
@@ -75,7 +92,7 @@
 #' }
 #'
 #' @importFrom stats family predict model.matrix qnorm dnorm runif
-#'   quantile na.pass optimize binomial dbinom formula fitted fitted.values
+#'   quantile na.pass optimize binomial quasibinomial dbinom formula fitted fitted.values
 #'   gaussian median model.frame model.offset model.weights napredict
 #'   delete.response terms .checkMFClasses .getXlevels dlogis plogis aggregate
 #'   smooth.spline
@@ -89,7 +106,9 @@ fpi0est <- function(
   indep_snps = NULL,
   weights = NULL,
   lambda = seq(0.05, 0.95, 0.05),
+  method = c("glm", "gam"),
   constrained.p = TRUE,
+  gam_k = 10,
   tol = 1e-9,
   maxit = 200,
   verbose = TRUE,
@@ -150,6 +169,15 @@ fpi0est <- function(
     stop("P-values must be in [0, 1].")
   }
 
+  method <- match.arg(method)
+
+  if (method == "gam" && !requireNamespace("mgcv", quietly = TRUE)) {
+    stop(
+      "Package 'mgcv' is required for method = 'gam'. ",
+      "Install with: install.packages('mgcv')"
+    )
+  }
+
   if (verbose) {
     message("==================================================")
     message("Estimating Functional Pi0")
@@ -193,37 +221,74 @@ fpi0est <- function(
     w_fit <- pmin(pmax(w_fit, 1e-6), 1.0)
   }
 
-  # Build formula for binomial regression
+  # Build formula (used by GLM directly; used by GAM only to extract variable names)
   fm <- formula(paste("phi", paste(pi0_model, collapse = " ")))
 
   if (verbose) {
     message(sprintf(
-      "  Fitting models across %d lambda values...",
-      length(lambda)
+      "  Fitting %s models across %d lambda values...",
+      toupper(method), length(lambda)
     ))
   }
 
-  # Fit pi0 model at a single lambda value using fastglm
-  fit_pi0_at_lambda <- function(lambda_val) {
-    z_fit$phi <- as.numeric(p_fit >= lambda_val)
+  if (method == "glm") {
+    fit_pi0_at_lambda <- function(lambda_val) {
+      z_fit$phi <- as.numeric(p_fit >= lambda_val)
 
-    fam <- if (constrained.p) {
-      constrained.binomial(1 - lambda_val)
-    } else {
-      binomial()
+      fam <- if (constrained.p) {
+        constrained.binomial(1 - lambda_val)
+      } else {
+        binomial()
+      }
+
+      suppressWarnings(
+        updated_fastglm(
+          formula = fm,
+          data = z_fit,
+          family = fam,
+          weights = w_fit,
+          tol = tol,
+          maxit = maxit,
+          ...
+        )
+      )
+    }
+  } else {
+    # GAM path: derive smooth terms from variable names in the formula
+    var_names <- setdiff(all.vars(fm), "phi")
+    if (length(var_names) == 0) {
+      stop("No covariates found in pi0_model for GAM fitting.")
     }
 
-    suppressWarnings(
-      updated_fastglm(
-        formula = fm,
-        data = z_fit,
-        family = fam,
-        weights = w_fit,
-        tol = tol,
-        maxit = maxit,
-        ...
+    # Cap k safely; REML penalty selects effective df automatically
+    gam_k_safe <- max(3L, min(gam_k, floor(nrow(z_fit) / 10L)))
+
+    gam_terms <- vapply(var_names, function(v) {
+      sprintf("s(%s, bs = 'cr', k = %d)", v, gam_k_safe)
+    }, character(1))
+    gam_fm <- as.formula(paste("phi ~", paste(gam_terms, collapse = " + ")))
+
+    z_fit_gam <- as.data.frame(z_fit)
+    z_fit_gam$.w <- if (!is.null(w_fit)) w_fit else rep(1.0, nrow(z_fit_gam))
+
+    if (verbose) {
+      message(sprintf("    formula: %s  (k = %d)", deparse1(gam_fm), gam_k_safe))
+    }
+
+    fit_pi0_at_lambda <- function(lambda_val) {
+      z_fit_gam$phi <- as.numeric(p_fit >= lambda_val)
+      suppressWarnings(
+        mgcv::bam(
+          gam_fm,
+          family  = quasibinomial(link = "logit"),
+          data    = z_fit_gam,
+          weights = .w,
+          method  = "fREML",
+          discrete = TRUE,
+          ...
+        )
       )
-    )
+    }
   }
 
   # Fit models across all lambda values
@@ -282,8 +347,9 @@ fpi0est <- function(
 
   chunk_size <- 500000
   n_valid <- nrow(z_valid)
+  z_valid_df <- as.data.frame(z_valid)
 
-  if (n_valid > chunk_size) {
+  if (method == "glm" && n_valid > chunk_size) {
     fpi0_pred <- numeric(n_valid)
     n_chunks <- ceiling(n_valid / chunk_size)
 
@@ -294,7 +360,7 @@ fpi0est <- function(
       fpi0_pred[idx_start:idx_end] <- pmin(
         predict(
           fpi0_selected$fpi0[[1]],
-          newdata = z_valid[idx_start:idx_end, , drop = FALSE],
+          newdata = z_valid_df[idx_start:idx_end, , drop = FALSE],
           type = "response"
         ) /
           (1 - lambda_hat),
@@ -303,7 +369,11 @@ fpi0est <- function(
     }
   } else {
     fpi0_pred <- pmin(
-      predict(fpi0_selected$fpi0[[1]], newdata = z_valid, type = "response") /
+      predict(
+        fpi0_selected$fpi0[[1]],
+        newdata = z_valid_df,
+        type = "response"
+      ) /
         (1 - lambda_hat),
       1
     )

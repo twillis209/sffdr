@@ -246,3 +246,66 @@ test_that("fpi0est handles small datasets", {
 #     message("\nFAIL: The weights did not protect the spline.")
 #   }
 # })
+
+test_that("fpi0est GAM method returns valid pi0 estimates", {
+  skip_if_not_installed("mgcv")
+  data(bmi)
+  p <- sumstats$bmi
+  z <- as.matrix(sumstats[, -1])
+
+  mpi0 <- pi0_model(
+    z,
+    min_discoveries = 100,
+    min_snps_per_knot = 50,
+    verbose = FALSE
+  )
+  result <- fpi0est(
+    p, z = mpi0$zt, pi0_model = mpi0$fmod,
+    method = "gam", verbose = FALSE
+  )
+
+  expect_named(result, c("fpi0", "tableLambda", "MISE", "lambda"))
+  expect_true(all(result$fpi0 >= 0 & result$fpi0 <= 1))
+  expect_true(result$lambda > 0 & result$lambda < 1)
+})
+
+test_that("fpi0est GAM method works with weights", {
+  skip_if_not_installed("mgcv")
+  set.seed(42)
+  n <- 2000
+  p <- runif(n)
+  z <- data.frame(var1 = runif(n))
+  w <- runif(n, 0.1, 1.0)
+
+  result <- fpi0est(
+    p, z = z, pi0_model = ~ var1, weights = w,
+    method = "gam", verbose = FALSE
+  )
+
+  expect_true(all(result$fpi0 >= 0 & result$fpi0 <= 1))
+})
+
+test_that("fpi0est GAM and GLM produce broadly concordant results", {
+  skip_if_not_installed("mgcv")
+  data(bmi)
+  p <- sumstats$bmi
+  z <- as.matrix(sumstats[, -1])
+
+  mpi0 <- pi0_model(
+    z,
+    min_discoveries = 100,
+    min_snps_per_knot = 50,
+    verbose = FALSE
+  )
+
+  result_glm <- fpi0est(
+    p, z = mpi0$zt, pi0_model = mpi0$fmod,
+    method = "glm", verbose = FALSE
+  )
+  result_gam <- fpi0est(
+    p, z = mpi0$zt, pi0_model = mpi0$fmod,
+    method = "gam", verbose = FALSE
+  )
+
+  expect_true(cor(result_glm$fpi0, result_gam$fpi0) > 0.8)
+})
